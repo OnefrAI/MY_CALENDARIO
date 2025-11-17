@@ -1,127 +1,72 @@
-// ==========================================
-// CALENDARIO GUARD-IA - SCRIPT MÍNIMO FUNCIONAL
-// ==========================================
+// CALENDARIO GUARD-IA
 
-// Ocultar el loader y mostrar el contenido cuando cargue la página
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM cargado - Iniciando calendario...');
+    console.log('DOM cargado');
     
-    // Ocultar loader
     const loader = document.getElementById('app-loader');
-    if (loader) {
-        loader.style.display = 'none';
-    }
+    if (loader) loader.style.display = 'none';
     
-    // Mostrar contenido
     const appContent = document.getElementById('app-content');
-    if (appContent) {
-        appContent.classList.remove('hidden');
-    }
+    if (appContent) appContent.classList.remove('hidden');
     
-    // Mostrar área principal del calendario
     const mainCalendarArea = document.getElementById('mainCalendarArea');
-    if (mainCalendarArea) {
-        mainCalendarArea.classList.remove('hidden');
-    }
+    if (mainCalendarArea) mainCalendarArea.classList.remove('hidden');
     
-    // Ocultar mensaje de "Selecciona o crea un calendario"
     const footerStatus = document.getElementById('footer-status');
-    if (footerStatus) {
-        footerStatus.style.display = 'none';
-    }
+    if (footerStatus) footerStatus.style.display = 'none';
     
-    console.log('Calendario cargado correctamente');
-    
-    // Inicializar el calendario
     initCalendar();
 });
 
-// ==========================================
-// CONSTANTES
-// ==========================================
-
-const MONTH_NAMES = [
-    'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-    'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-];
+const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 const SHIFT_TYPES = {
-    'M': { label: 'Mañana', color: '#00ff88' },
+    'M': { label: 'Manana', color: '#00ff88' },
     'T': { label: 'Tarde', color: '#ff9500' },
     'N': { label: 'Noche', color: '#5e5ce6' },
     'L': { label: 'Libre', color: '#64d2ff' }
 };
 
-// ==========================================
-// ESTADO DE LA APLICACIÓN
-// ==========================================
-
 const state = {
     currentDate: new Date(),
     selectedShiftType: null,
-    shiftData: {}, // { 'YYYY-MM-DD': 'M'|'T'|'N'|'L' }
+    shiftData: {},
     isEditMode: false
 };
 
-// ==========================================
-// INICIALIZAR CALENDARIO
-// ==========================================
-
 function initCalendar() {
-    console.log('Inicializando calendario...');
-    
-    // Renderizar calendario
     renderCalendar();
-    
-    // Setup eventos
     setupEvents();
-    
-    console.log('Calendario inicializado');
+    loadFromLocalStorage();
 }
-
-// ==========================================
-// RENDERIZAR CALENDARIO
-// ==========================================
 
 function renderCalendar() {
     const year = state.currentDate.getFullYear();
     const month = state.currentDate.getMonth();
     
-    // Actualizar título del mes
     const monthYearDisplay = document.getElementById('currentMonthYear');
-    if (monthYearDisplay) {
-        monthYearDisplay.textContent = `${MONTH_NAMES[month]} ${year}`;
-    }
+    if (monthYearDisplay) monthYearDisplay.textContent = MONTH_NAMES[month] + ' ' + year;
     
-    // Actualizar título del header móvil
     const calendarTitle = document.getElementById('calendarTitle');
-    if (calendarTitle) {
-        calendarTitle.textContent = `${MONTH_NAMES[month]} ${year}`;
-    }
+    if (calendarTitle) calendarTitle.textContent = MONTH_NAMES[month] + ' ' + year;
     
-    // Obtener primer y último día del mes
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
     const daysInMonth = lastDay.getDate();
     
-    // Primer día de la semana (0 = Domingo, ajustar para que empiece en Lunes)
     let firstDayOfWeek = firstDay.getDay();
-    firstDayOfWeek = firstDayOfWeek === 0 ? 7 : firstDayOfWeek; // Domingo = 7
+    firstDayOfWeek = firstDayOfWeek === 0 ? 7 : firstDayOfWeek;
     
-    // Días del mes anterior a mostrar
-    const prevMonthDays = firstDayOfWeek - 1; // -1 porque empezamos en Lunes
+    const prevMonthDays = firstDayOfWeek - 1;
     const prevMonth = month === 0 ? 11 : month - 1;
     const prevMonthYear = month === 0 ? year - 1 : year;
     const prevMonthLastDay = new Date(prevMonthYear, prevMonth + 1, 0).getDate();
     
-    // Generar grid
     const calendarGrid = document.getElementById('calendarGrid');
     if (!calendarGrid) return;
     
     calendarGrid.innerHTML = '';
     
-    // Total de celdas a mostrar (6 semanas × 8 columnas = 48 celdas)
-    // Primera columna es para números de semana
     const totalWeeks = 6;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -130,31 +75,26 @@ function renderCalendar() {
     let weekNumber = getWeekNumber(new Date(year, month, 1));
     
     for (let week = 0; week < totalWeeks; week++) {
-        // Celda de número de semana
         const weekCell = createWeekNumberCell(weekNumber);
         calendarGrid.appendChild(weekCell);
         weekNumber++;
         
-        // Días de la semana (Lunes a Domingo = 7 días)
         for (let day = 0; day < 7; day++) {
             let cellDate;
             let isCurrentMonth = true;
             let dayNumber;
             
             if (dayCounter < 1) {
-                // Días del mes anterior
                 dayNumber = prevMonthLastDay + dayCounter;
                 cellDate = new Date(prevMonthYear, prevMonth, dayNumber);
                 isCurrentMonth = false;
             } else if (dayCounter > daysInMonth) {
-                // Días del mes siguiente
                 dayNumber = dayCounter - daysInMonth;
                 const nextMonth = month === 11 ? 0 : month + 1;
                 const nextMonthYear = month === 11 ? year + 1 : year;
                 cellDate = new Date(nextMonthYear, nextMonth, dayNumber);
                 isCurrentMonth = false;
             } else {
-                // Días del mes actual
                 dayNumber = dayCounter;
                 cellDate = new Date(year, month, dayNumber);
             }
@@ -167,41 +107,25 @@ function renderCalendar() {
     }
 }
 
-// ==========================================
-// CREAR CELDA DE NÚMERO DE SEMANA
-// ==========================================
-
 function createWeekNumberCell(weekNumber) {
     const cell = document.createElement('div');
     cell.className = 'day-cell week-number-cell';
-    cell.innerHTML = `<div class="day-number">${weekNumber}</div>`;
+    cell.innerHTML = '<div class="day-number">' + weekNumber + '</div>';
     return cell;
 }
-
-// ==========================================
-// CREAR CELDA DE DÍA
-// ==========================================
 
 function createDayCell(date, dayNumber, isCurrentMonth, today) {
     const cell = document.createElement('div');
     cell.className = 'day-cell';
     
-    if (!isCurrentMonth) {
-        cell.classList.add('other-month');
-    }
+    if (!isCurrentMonth) cell.classList.add('other-month');
+    if (date.getTime() === today.getTime()) cell.classList.add('current-day');
     
-    // Verificar si es hoy
-    if (date.getTime() === today.getTime()) {
-        cell.classList.add('current-day');
-    }
-    
-    // Crear número del día
     const dayNumberDiv = document.createElement('div');
     dayNumberDiv.className = 'day-number';
     dayNumberDiv.textContent = dayNumber;
     cell.appendChild(dayNumberDiv);
     
-    // Obtener turno del día
     const dateStr = formatDate(date);
     const shiftType = state.shiftData[dateStr];
     
@@ -214,10 +138,9 @@ function createDayCell(date, dayNumber, isCurrentMonth, today) {
         cell.appendChild(shiftIndicator);
     }
     
-    // Evento click para editar (solo en mes actual)
     if (isCurrentMonth && state.isEditMode && state.selectedShiftType) {
         cell.style.cursor = 'pointer';
-        cell.addEventListener('click', () => {
+        cell.addEventListener('click', function() {
             setShift(dateStr, state.selectedShiftType);
         });
     }
@@ -225,15 +148,11 @@ function createDayCell(date, dayNumber, isCurrentMonth, today) {
     return cell;
 }
 
-// ==========================================
-// UTILIDADES
-// ==========================================
-
 function formatDate(date) {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    return year + '-' + month + '-' + day;
 }
 
 function getWeekNumber(date) {
@@ -258,59 +177,52 @@ function saveToLocalStorage() {
     try {
         localStorage.setItem('guardia_shifts', JSON.stringify(state.shiftData));
     } catch (e) {
-        console.error('Error guardando en localStorage:', e);
+        console.error('Error guardando', e);
     }
 }
 
 function loadFromLocalStorage() {
     try {
         const saved = localStorage.getItem('guardia_shifts');
-        if (saved) {
-            state.shiftData = JSON.parse(saved);
-        }
+        if (saved) state.shiftData = JSON.parse(saved);
+        renderCalendar();
     } catch (e) {
-        console.error('Error cargando de localStorage:', e);
+        console.error('Error cargando', e);
     }
 }
 
-// ==========================================
-// SETUP EVENTOS
-// ==========================================
-
 function setupEvents() {
-    // Navegación de mes
     const prevMonthBtn = document.getElementById('prevMonth');
     const nextMonthBtn = document.getElementById('nextMonth');
     const todayBtn = document.getElementById('todayBtn');
     
     if (prevMonthBtn) {
-        prevMonthBtn.addEventListener('click', () => {
+        prevMonthBtn.addEventListener('click', function() {
             state.currentDate.setMonth(state.currentDate.getMonth() - 1);
             renderCalendar();
         });
     }
     
     if (nextMonthBtn) {
-        nextMonthBtn.addEventListener('click', () => {
+        nextMonthBtn.addEventListener('click', function() {
             state.currentDate.setMonth(state.currentDate.getMonth() + 1);
             renderCalendar();
         });
     }
     
     if (todayBtn) {
-        todayBtn.addEventListener('click', () => {
+        todayBtn.addEventListener('click', function() {
             state.currentDate = new Date();
             renderCalendar();
         });
     }
     
-    // FAB button (editar)
     const fabBtn = document.getElementById('fabEditBtn');
     const editPanel = document.getElementById('floatingEditPanel');
     
     if (fabBtn) {
         fabBtn.classList.remove('hidden');
-        fabBtn.addEventListener('click', () => {
+        fabBtn.addEventListener('click', function() {
             state.isEditMode = !state.isEditMode;
             
             if (state.isEditMode) {
@@ -326,10 +238,9 @@ function setupEvents() {
         });
     }
     
-    // Cerrar panel de edición
     const closeEditPanelBtn = document.getElementById('closeEditPanelBtn');
     if (closeEditPanelBtn) {
-        closeEditPanelBtn.addEventListener('click', () => {
+        closeEditPanelBtn.addEventListener('click', function() {
             state.isEditMode = false;
             if (fabBtn) fabBtn.classList.remove('edit-active');
             if (editPanel) editPanel.classList.remove('active');
@@ -339,36 +250,27 @@ function setupEvents() {
         });
     }
     
-    // Botones de turnos
     setupShiftButtons();
-    
-    // Sidebar
     setupSidebar();
-    
-    // Cargar datos
-    loadFromLocalStorage();
 }
-
-// ==========================================
-// SETUP BOTONES DE TURNO
-// ==========================================
 
 function setupShiftButtons() {
     const shiftSelector = document.getElementById('shiftSelector');
     if (!shiftSelector) return;
     
-    // Crear botones de turno
     shiftSelector.innerHTML = '';
     
-    Object.entries(SHIFT_TYPES).forEach(([type, info]) => {
+    Object.entries(SHIFT_TYPES).forEach(function(entry) {
+        const type = entry[0];
+        const info = entry[1];
         const btn = document.createElement('button');
         btn.className = 'shift-button';
-        btn.textContent = `${type} - ${info.label}`;
+        btn.textContent = type + ' - ' + info.label;
         btn.style.backgroundColor = info.color;
         btn.style.color = '#000';
         btn.dataset.shiftType = type;
         
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', function() {
             state.selectedShiftType = type;
             updateShiftButtons();
         });
@@ -376,10 +278,9 @@ function setupShiftButtons() {
         shiftSelector.appendChild(btn);
     });
     
-    // Botón borrar
     const eraseBtn = document.querySelector('[data-shift-type="erase"]');
     if (eraseBtn) {
-        eraseBtn.addEventListener('click', () => {
+        eraseBtn.addEventListener('click', function() {
             state.selectedShiftType = 'erase';
             updateShiftButtons();
         });
@@ -387,7 +288,7 @@ function setupShiftButtons() {
 }
 
 function updateShiftButtons() {
-    document.querySelectorAll('.shift-button, .turno-btn').forEach(btn => {
+    document.querySelectorAll('.shift-button, .turno-btn').forEach(function(btn) {
         if (btn.dataset.shiftType === state.selectedShiftType) {
             btn.classList.add('selected');
         } else {
@@ -395,10 +296,6 @@ function updateShiftButtons() {
         }
     });
 }
-
-// ==========================================
-// SETUP SIDEBAR
-// ==========================================
 
 function setupSidebar() {
     const hamburgerBtn = document.getElementById('hamburgerBtn');
@@ -416,29 +313,16 @@ function setupSidebar() {
         if (sidebarOverlay) sidebarOverlay.classList.remove('active');
     }
     
-    if (hamburgerBtn) {
-        hamburgerBtn.addEventListener('click', openSidebar);
-    }
+    if (hamburgerBtn) hamburgerBtn.addEventListener('click', openSidebar);
+    if (closeSidebarBtn) closeSidebarBtn.addEventListener('click', closeSidebar);
+    if (sidebarOverlay) sidebarOverlay.addEventListener('click', closeSidebar);
     
-    if (closeSidebarBtn) {
-        closeSidebarBtn.addEventListener('click', closeSidebar);
-    }
-    
-    if (sidebarOverlay) {
-        sidebarOverlay.addEventListener('click', closeSidebar);
-    }
-    
-    // Botón de tema
     const themeToggleBtn = document.getElementById('themeToggleBtn');
     if (themeToggleBtn) {
         updateThemeButton();
         themeToggleBtn.addEventListener('click', toggleTheme);
     }
 }
-
-// ==========================================
-// TEMA CLARO/OSCURO
-// ==========================================
 
 function toggleTheme() {
     document.body.classList.toggle('light-mode');
@@ -452,15 +336,8 @@ function updateThemeButton() {
     if (!themeBtn) return;
     
     const isLight = document.body.classList.contains('light-mode');
-    themeBtn.innerHTML = isLight 
-        ? '<i class="fas fa-moon"></i> Modo Oscuro'
-        : '<i class="fas fa-sun"></i> Modo Claro';
+    themeBtn.innerHTML = isLight ? '<i class="fas fa-moon"></i> Modo Oscuro' : '<i class="fas fa-sun"></i> Modo Claro';
 }
 
-// Cargar tema guardado
 const savedTheme = localStorage.getItem('theme');
-if (savedTheme === 'light') {
-    document.body.classList.add('light-mode');
-}
-
-console.log('Script cargado completamente');
+if (savedTheme === 'light') document.body.classList.add('light-mode');
