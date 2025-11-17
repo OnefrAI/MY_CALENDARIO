@@ -24,12 +24,38 @@
         </div>
         <div class="sidebar-content">
             <div class="sidebar-section">
-                <button id="themeToggleBtn" class="btn btn-secondary w-full mb-3"></button>
-                <button id="manageCyclesBtn" class="btn btn-primary w-full">
-                    <i class="fas fa-sync"></i> Mis Ciclos de Turno
+                <h3 class="sidebar-section-title">Calendarios</h3>
+                <select id="calendarSelector" class="form-select mb-3">
+                    <option value="default">Mi Calendario</option>
+                </select>
+                <input type="text" id="newCalendarName" class="form-input mb-3" placeholder="Nombre nuevo calendario">
+                <div class="flex gap-2">
+                    <button id="addCalendarBtn" class="btn btn-primary flex-1">
+                        <i class="fas fa-plus"></i> Crear
+                    </button>
+                    <button id="deleteCalendarBtn" class="btn btn-danger flex-1">
+                        <i class="fas fa-trash-alt"></i> Borrar
+                    </button>
+                </div>
+            </div>
+            <div class="sidebar-section">
+                <h3 class="sidebar-section-title">Turnos</h3>
+                <button id="manageCyclesBtn" class="btn btn-primary w-full mb-3">
+                    <i class="fas fa-sync"></i> Mis Ciclos
+                </button>
+                <button id="clearAllShiftsBtn" class="btn btn-danger w-full">
+                    <i class="fas fa-broom"></i> Limpiar Todo
                 </button>
             </div>
             <div class="sidebar-section">
+                <h3 class="sidebar-section-title">Apariencia</h3>
+                <button id="themeToggleBtn" class="btn btn-secondary w-full"></button>
+            </div>
+            <div class="sidebar-section">
+                <h3 class="sidebar-section-title">Ayuda</h3>
+                <button id="helpBtn" class="btn btn-secondary w-full mb-3">
+                    <i class="fas fa-question-circle"></i> Como usar
+                </button>
                 <a href="https://onefrai.github.io/guard-ia-app/" target="_top" class="btn btn-secondary w-full">
                     <i class="fas fa-arrow-left"></i> Volver
                 </a>
