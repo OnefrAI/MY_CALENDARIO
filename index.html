@@ -6,8 +6,6 @@
     <title>Calendario del GUARD-IA</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
@@ -15,118 +13,57 @@
     <div id="app-loader" class="fixed inset-0 bg-gray-900 bg-opacity-90 flex items-center justify-center z-[2000]">
         <div class="text-white text-xl flex flex-col items-center gap-4">
             <i class="fas fa-spinner fa-spin text-4xl" style="color: var(--accent-primary)"></i>
-            <span>Cargando calendario...</span>
+            <span>Cargando...</span>
         </div>
     </div>
-
     <div id="sidebarOverlay" class="sidebar-overlay"></div>
-
     <aside id="sidebar" class="sidebar">
         <div class="sidebar-header">
-            <h2 class="text-lg font-bold">Configuracion</h2>
-            <button id="closeSidebarBtn" class="btn-icon btn-secondary">
-                <i class="fas fa-times"></i>
-            </button>
+            <h2 class="text-lg font-bold">Menu</h2>
+            <button id="closeSidebarBtn" class="btn-icon btn-secondary"><i class="fas fa-times"></i></button>
         </div>
-        
         <div class="sidebar-content">
             <div class="sidebar-section">
-                <h3 class="sidebar-section-title">Apariencia</h3>
-                <button id="themeToggleBtn" class="btn btn-secondary w-full mb-3"></button>
+                <button id="themeToggleBtn" class="btn btn-secondary w-full"></button>
             </div>
-
             <div class="sidebar-section">
                 <a href="https://onefrai.github.io/guard-ia-app/" target="_top" class="btn btn-secondary w-full">
-                    <i class="fas fa-arrow-left"></i> Volver a GUARD-IA
+                    <i class="fas fa-arrow-left"></i> Volver
                 </a>
             </div>
         </div>
     </aside>
-
     <div id="app-content" class="hidden">
         <header class="mobile-header">
-            <button id="hamburgerBtn" class="hamburger-btn">
-                <i class="fas fa-bars"></i>
-            </button>
-            <button id="prevMonth" class="btn-icon btn-secondary">
-                <i class="fas fa-chevron-left"></i>
-            </button>
-            <h1 class="text-base font-bold flex-1 text-center" id="calendarTitle">Calendario</h1>
-            <button id="todayBtn" class="btn-icon btn-primary">
-                <i class="fas fa-calendar-day"></i>
-            </button>
-            <button id="nextMonth" class="btn-icon btn-secondary">
-                <i class="fas fa-chevron-right"></i>
-            </button>
+            <button id="hamburgerBtn" class="hamburger-btn"><i class="fas fa-bars"></i></button>
+            <button id="prevMonth" class="btn-icon btn-secondary"><i class="fas fa-chevron-left"></i></button>
+            <h1 class="text-base font-bold flex-1 text-center" id="calendarTitle">Cal</h1>
+            <button id="todayBtn" class="btn-icon btn-primary"><i class="fas fa-calendar-day"></i></button>
+            <button id="nextMonth" class="btn-icon btn-secondary"><i class="fas fa-chevron-right"></i></button>
         </header>
-
         <main>
             <section id="mainCalendarArea" class="hidden">
                 <div class="calendar-weekdays">
-                    <div>S</div>
-                    <div>L</div>
-                    <div>M</div>
-                    <div>X</div>
-                    <div>J</div>
-                    <div>V</div>
-                    <div>S</div>
-                    <div>D</div>
+                    <div>S</div><div>L</div><div>M</div><div>X</div><div>J</div><div>V</div><div>S</div><div>D</div>
                 </div>
-
                 <div id="calendarGrid" class="calendar-grid"></div>
             </section>
-
-            <div id="footer-status" class="text-center text-sm py-4" style="color: var(--text-secondary)">
-                (Selecciona o crea un calendario para empezar)
-            </div>
         </main>
-
-        <button id="fabEditBtn" class="fab-button hidden">
-            <i class="fas fa-edit"></i>
-        </button>
-
+        <button id="fabEditBtn" class="fab-button hidden"><i class="fas fa-edit"></i></button>
         <div id="floatingEditPanel" class="floating-edit-panel">
             <div class="flex justify-between items-center mb-3">
-                <h3 class="text-base font-bold">Editar Turnos</h3>
-                <button id="closeEditPanelBtn" class="btn-icon btn-secondary">
-                    <i class="fas fa-times"></i>
-                </button>
+                <h3 class="text-base font-bold">Editar</h3>
+                <button id="closeEditPanelBtn" class="btn-icon btn-secondary"><i class="fas fa-times"></i></button>
             </div>
-
             <div class="compact-edit-grid">
                 <div class="turno-buttons-row-1" id="shiftSelector"></div>
-                
                 <div class="turno-buttons-row-2">
-                    <button class="turno-btn btn-borrar" data-shift-type="erase">
-                        <i class="fas fa-eraser"></i> Borrar
-                    </button>
-                    <button id="startPatternSelectionBtn" class="turno-btn btn-patron">
-                        <i class="fas fa-magic"></i> Patron
-                    </button>
-                </div>
-            </div>
-
-            <p id="patternInfo" class="text-xs mt-2 text-center" style="color: var(--text-secondary)"></p>
-
-            <div id="patternApplyArea" class="hidden space-y-2 mt-3">
-                <div id="selectedPatternDisplay" class="p-2 rounded-lg text-xs" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-primary)"></div>
-                <label class="block text-xs font-medium mb-1">Extender hasta:</label>
-                <input type="date" id="applyUntilDate" class="form-input text-sm mb-2">
-                <div class="flex gap-2">
-                    <button id="applySelectedPatternBtn" class="btn btn-primary flex-1 text-sm">
-                        <i class="fas fa-check"></i> Aplicar
-                    </button>
-                    <button id="cancelPatternSelectionBtn" class="btn btn-secondary flex-1 text-sm">
-                        <i class="fas fa-times"></i> Cancelar
-                    </button>
+                    <button class="turno-btn btn-borrar" data-shift-type="erase"><i class="fas fa-eraser"></i> Borrar</button>
                 </div>
             </div>
         </div>
     </div>
-
     <div id="modal-container"></div>
-    <div id="toast-container" class="toast-container"></div>
-
-    <script type="module" src="script.js"></script>
+    <script src="script.js"></script>
 </body>
 </html>
