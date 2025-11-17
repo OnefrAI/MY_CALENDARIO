@@ -4,23 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Calendario del GUARD-IA</title>
-    
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
-    
-    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    
-    <!-- CSS personalizado -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="dark-mode">
-    <!-- Loader inicial -->
     <div id="app-loader" class="fixed inset-0 bg-gray-900 bg-opacity-90 flex items-center justify-center z-[2000]">
         <div class="text-white text-xl flex flex-col items-center gap-4">
             <i class="fas fa-spinner fa-spin text-4xl" style="color: var(--accent-primary)"></i>
@@ -28,52 +19,22 @@
         </div>
     </div>
 
-    <!-- Overlay del sidebar -->
     <div id="sidebarOverlay" class="sidebar-overlay"></div>
 
-    <!-- Menú lateral -->
     <aside id="sidebar" class="sidebar">
         <div class="sidebar-header">
-            <h2 class="text-lg font-bold">Configuración</h2>
+            <h2 class="text-lg font-bold">Configuracion</h2>
             <button id="closeSidebarBtn" class="btn-icon btn-secondary">
                 <i class="fas fa-times"></i>
             </button>
         </div>
         
         <div class="sidebar-content">
-            <!-- Sección: Calendarios -->
-            <div class="sidebar-section">
-                <h3 class="sidebar-section-title">Calendarios</h3>
-                <select id="calendarSelector" class="form-select mb-3"></select>
-                <input type="text" id="newCalendarName" class="form-input mb-3" placeholder="Nombre del nuevo calendario">
-                <div class="flex gap-2">
-                    <button id="addCalendarBtn" class="btn btn-primary flex-1">
-                        <i class="fas fa-plus"></i> Añadir
-                    </button>
-                    <button id="deleteCalendarBtn" class="btn btn-danger flex-1">
-                        <i class="fas fa-trash-alt"></i> Eliminar
-                    </button>
-                </div>
-            </div>
-
-            <!-- Sección: Apariencia -->
             <div class="sidebar-section">
                 <h3 class="sidebar-section-title">Apariencia</h3>
                 <button id="themeToggleBtn" class="btn btn-secondary w-full mb-3"></button>
-                <button id="customizeColorsBtn" class="btn btn-secondary w-full">
-                    <i class="fas fa-palette"></i> Personalizar colores
-                </button>
             </div>
 
-            <!-- Sección: Ayuda -->
-            <div class="sidebar-section">
-                <h3 class="sidebar-section-title">Ayuda</h3>
-                <button id="startTutorialBtn" class="btn btn-secondary w-full">
-                    <i class="fas fa-question-circle"></i> Guía de uso
-                </button>
-            </div>
-
-            <!-- Sección: Volver -->
             <div class="sidebar-section">
                 <a href="https://onefrai.github.io/guard-ia-app/" target="_top" class="btn btn-secondary w-full">
                     <i class="fas fa-arrow-left"></i> Volver a GUARD-IA
@@ -82,37 +43,25 @@
         </div>
     </aside>
 
-    <!-- Contenido principal -->
     <div id="app-content" class="hidden">
-        <!-- Header móvil -->
         <header class="mobile-header">
             <button id="hamburgerBtn" class="hamburger-btn">
                 <i class="fas fa-bars"></i>
             </button>
-            <h1 class="text-lg font-bold" id="calendarTitle">Calendario</h1>
-            <div style="width: 2.5rem;"></div>
+            <button id="prevMonth" class="btn-icon btn-secondary">
+                <i class="fas fa-chevron-left"></i>
+            </button>
+            <h1 class="text-base font-bold flex-1 text-center" id="calendarTitle">Calendario</h1>
+            <button id="todayBtn" class="btn-icon btn-primary">
+                <i class="fas fa-calendar-day"></i>
+            </button>
+            <button id="nextMonth" class="btn-icon btn-secondary">
+                <i class="fas fa-chevron-right"></i>
+            </button>
         </header>
 
-        <!-- Calendario -->
         <main>
             <section id="mainCalendarArea" class="hidden">
-                <!-- Header del calendario con navegación -->
-                <div class="calendar-header">
-                    <button id="prevMonth" class="btn-icon btn-secondary">
-                        <i class="fas fa-chevron-left"></i>
-                    </button>
-                    <h2 id="currentMonthYear" class="month-year-display"></h2>
-                    <button id="nextMonth" class="btn-icon btn-secondary">
-                        <i class="fas fa-chevron-right"></i>
-                    </button>
-                    <!-- BOTÓN HOY PROMINENTE -->
-                    <button id="todayBtn" class="btn btn-primary today-btn">
-                        <i class="fas fa-calendar-day"></i>
-                        <span class="today-text">Hoy</span>
-                    </button>
-                </div>
-
-                <!-- Días de la semana -->
                 <div class="calendar-weekdays">
                     <div>S</div>
                     <div>L</div>
@@ -124,41 +73,18 @@
                     <div>D</div>
                 </div>
 
-                <!-- Grid del calendario -->
                 <div id="calendarGrid" class="calendar-grid"></div>
-
-                <!-- Resumen de turnos -->
-                <div id="shiftSummary" class="shift-summary"></div>
             </section>
 
-            <!-- Mensaje cuando no hay calendario -->
             <div id="footer-status" class="text-center text-sm py-4" style="color: var(--text-secondary)">
                 (Selecciona o crea un calendario para empezar)
             </div>
-
-            <!-- INFO DE ATAJOS DE TECLADO -->
-            <div id="keyboard-hints" class="keyboard-hints hidden">
-                <div class="keyboard-hint">
-                    <kbd>←</kbd><kbd>→</kbd> <span>Navegar meses</span>
-                </div>
-                <div class="keyboard-hint">
-                    <kbd>Espacio</kbd> <span>Ir a hoy</span>
-                </div>
-                <div class="keyboard-hint">
-                    <kbd>E</kbd> <span>Editar turnos</span>
-                </div>
-                <div class="keyboard-hint">
-                    <kbd>Click derecho</kbd> <span>Configurar notificación</span>
-                </div>
-            </div>
         </main>
 
-        <!-- Botón flotante para editar -->
         <button id="fabEditBtn" class="fab-button hidden">
             <i class="fas fa-edit"></i>
         </button>
 
-        <!-- Panel de edición flotante -->
         <div id="floatingEditPanel" class="floating-edit-panel">
             <div class="flex justify-between items-center mb-3">
                 <h3 class="text-base font-bold">Editar Turnos</h3>
@@ -167,26 +93,21 @@
                 </button>
             </div>
 
-            <!-- Botones de turnos en 2 filas compactas -->
             <div class="compact-edit-grid">
-                <!-- Primera fila: 4 botones de turnos -->
                 <div class="turno-buttons-row-1" id="shiftSelector"></div>
                 
-                <!-- Segunda fila: Borrar y Patrón -->
                 <div class="turno-buttons-row-2">
                     <button class="turno-btn btn-borrar" data-shift-type="erase">
                         <i class="fas fa-eraser"></i> Borrar
                     </button>
                     <button id="startPatternSelectionBtn" class="turno-btn btn-patron">
-                        <i class="fas fa-magic"></i> Patrón
+                        <i class="fas fa-magic"></i> Patron
                     </button>
                 </div>
             </div>
 
-            <!-- Info de patrón -->
             <p id="patternInfo" class="text-xs mt-2 text-center" style="color: var(--text-secondary)"></p>
 
-            <!-- Controles de aplicar patrón -->
             <div id="patternApplyArea" class="hidden space-y-2 mt-3">
                 <div id="selectedPatternDisplay" class="p-2 rounded-lg text-xs" style="background-color: var(--bg-tertiary); border: 1px solid var(--border-primary)"></div>
                 <label class="block text-xs font-medium mb-1">Extender hasta:</label>
@@ -203,13 +124,9 @@
         </div>
     </div>
 
-    <!-- Contenedor de modales -->
     <div id="modal-container"></div>
-    
-    <!-- Contenedor de notificaciones toast -->
     <div id="toast-container" class="toast-container"></div>
 
-    <!-- JavaScript principal -->
     <script type="module" src="script.js"></script>
 </body>
 </html>
