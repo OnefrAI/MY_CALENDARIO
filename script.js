@@ -31,6 +31,7 @@ const state = {
     currentDate: new Date(),
     selectedShiftType: null,
     shiftData: {},
+    notes: {},
     isEditMode: false
 };
 
@@ -138,10 +139,28 @@ function createDayCell(date, dayNumber, isCurrentMonth, today) {
         cell.appendChild(shiftIndicator);
     }
     
+    if (state.notes && state.notes[dateStr]) {
+        const noteIndicator = document.createElement('div');
+        noteIndicator.className = 'note-indicator';
+        noteIndicator.innerHTML = '<i class="fas fa-sticky-note"></i>';
+        cell.appendChild(noteIndicator);
+    }
+    
     if (isCurrentMonth && state.isEditMode && state.selectedShiftType) {
         cell.style.cursor = 'pointer';
         cell.addEventListener('click', function() {
             setShift(dateStr, state.selectedShiftType);
+        });
+    }
+    
+    if (isCurrentMonth) {
+        cell.addEventListener('contextmenu', function(e) {
+            e.preventDefault();
+            showNoteModal(dateStr, date);
+        });
+        
+        cell.addEventListener('dblclick', function() {
+            showNoteModal(dateStr, date);
         });
     }
     
@@ -176,6 +195,7 @@ function setShift(dateStr, shiftType) {
 function saveToLocalStorage() {
     try {
         localStorage.setItem('guardia_shifts', JSON.stringify(state.shiftData));
+        localStorage.setItem('guardia_notes', JSON.stringify(state.notes));
     } catch (e) {
         console.error('Error guardando', e);
     }
@@ -185,6 +205,10 @@ function loadFromLocalStorage() {
     try {
         const saved = localStorage.getItem('guardia_shifts');
         if (saved) state.shiftData = JSON.parse(saved);
+        
+        const savedNotes = localStorage.getItem('guardia_notes');
+        if (savedNotes) state.notes = JSON.parse(savedNotes);
+        
         renderCalendar();
     } catch (e) {
         console.error('Error cargando', e);
@@ -341,3 +365,42 @@ function updateThemeButton() {
 
 const savedTheme = localStorage.getItem('theme');
 if (savedTheme === 'light') document.body.classList.add('light-mode');
+
+function showNoteModal(dateStr, date) {
+    const existingNote = state.notes[dateStr] || '';
+    
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay visible';
+    modal.innerHTML = '<div class="modal-content"><h3 class="text-lg font-bold mb-3">Nota para ' + date.getDate() + ' de ' + MONTH_NAMES[date.getMonth()] + '</h3><textarea id="noteText" class="form-input w-full mb-3" rows="4" placeholder="Escribe tu nota aqui...">' + existingNote + '</textarea><div class="flex gap-2"><button id="saveNoteBtn" class="btn btn-primary flex-1">Guardar</button><button id="deleteNoteBtn" class="btn btn-danger flex-1">Borrar</button><button id="cancelNoteBtn" class="btn btn-secondary flex-1">Cancelar</button></div></div>';
+    
+    document.body.appendChild(modal);
+    
+    document.getElementById('saveNoteBtn').addEventListener('click', function() {
+        const noteText = document.getElementById('noteText').value.trim();
+        if (noteText) {
+            state.notes[dateStr] = noteText;
+        } else {
+            delete state.notes[dateStr];
+        }
+        saveToLocalStorage();
+        renderCalendar();
+        document.body.removeChild(modal);
+    });
+    
+    document.getElementById('deleteNoteBtn').addEventListener('click', function() {
+        delete state.notes[dateStr];
+        saveToLocalStorage();
+        renderCalendar();
+        document.body.removeChild(modal);
+    });
+    
+    document.getElementById('cancelNoteBtn').addEventListener('click', function() {
+        document.body.removeChild(modal);
+    });
+    
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) {
+            document.body.removeChild(modal);
+        }
+    });
+}
