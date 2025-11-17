@@ -7,12 +7,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
 const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const SHIFT_TYPES = {'M':{label:'Manana',color:'#00ff88'},'T':{label:'Tarde',color:'#ff9500'},'N':{label:'Noche',color:'#5e5ce6'},'L':{label:'Libre',color:'#64d2ff'}};
-const state = {currentDate:new Date(),selectedShiftType:null,shiftData:{},notes:{},cycles:[],isEditMode:false,isBuildingCycle:false,cycleBuilder:[]};
+const state = {currentDate:new Date(),selectedShiftType:null,shiftData:{},notes:{},cycles:[],calendars:{default:{name:'Mi Calendario',shifts:{},notes:{}}},activeCalendar:'default',isEditMode:false,isBuildingCycle:false,cycleBuilder:[]};
 
 function initCalendar() {
+    loadActiveCalendar();
     renderCalendar();
     setupEvents();
     loadData();
+}
+
+function loadActiveCalendar() {
+    if(state.calendars[state.activeCalendar]) {
+        state.shiftData = state.calendars[state.activeCalendar].shifts || {};
+        state.notes = state.calendars[state.activeCalendar].notes || {};
+    }
 }
 
 function renderCalendar() {
@@ -158,19 +166,23 @@ function showNote(dateStr, date) {
 }
 
 function saveData() {
-    localStorage.setItem('guardia_shifts', JSON.stringify(state.shiftData));
-    localStorage.setItem('guardia_notes', JSON.stringify(state.notes));
+    state.calendars[state.activeCalendar].shifts = state.shiftData;
+    state.calendars[state.activeCalendar].notes = state.notes;
+    localStorage.setItem('guardia_calendars', JSON.stringify(state.calendars));
+    localStorage.setItem('guardia_active', state.activeCalendar);
     localStorage.setItem('guardia_cycles', JSON.stringify(state.cycles));
 }
 
 function loadData() {
     try {
-        const s = localStorage.getItem('guardia_shifts');
-        if(s) state.shiftData = JSON.parse(s);
-        const n = localStorage.getItem('guardia_notes');
-        if(n) state.notes = JSON.parse(n);
+        const cals = localStorage.getItem('guardia_calendars');
+        if(cals) state.calendars = JSON.parse(cals);
+        const active = localStorage.getItem('guardia_active');
+        if(active) state.activeCalendar = active;
         const c = localStorage.getItem('guardia_cycles');
         if(c) state.cycles = JSON.parse(c);
+        loadActiveCalendar();
+        updateCalendarSelector();
         renderCalendar();
     } catch(e) {}
 }
@@ -270,6 +282,57 @@ function setupSidebar() {
     document.getElementById('manageCyclesBtn').onclick = function() {
         closeSb();
         showCyclesManager();
+    };
+    
+    document.getElementById('calendarSelector').onchange = function() {
+        state.activeCalendar = this.value;
+        loadActiveCalendar();
+        renderCalendar();
+    };
+    
+    document.getElementById('addCalendarBtn').onclick = function() {
+        const name = document.getElementById('newCalendarName').value.trim();
+        if(!name) { alert('Escribe un nombre'); return; }
+        const id = 'cal_' + Date.now();
+        state.calendars[id] = {name: name, shifts: {}, notes: {}};
+        state.activeCalendar = id;
+        loadActiveCalendar();
+        updateCalendarSelector();
+        saveData();
+        renderCalendar();
+        document.getElementById('newCalendarName').value = '';
+        showToast('Calendario creado');
+    };
+    
+    document.getElementById('deleteCalendarBtn').onclick = function() {
+        if(state.activeCalendar === 'default') {
+            alert('No puedes borrar el calendario principal');
+            return;
+        }
+        if(confirm('¿Borrar este calendario?')) {
+            delete state.calendars[state.activeCalendar];
+            state.activeCalendar = 'default';
+            loadActiveCalendar();
+            updateCalendarSelector();
+            saveData();
+            renderCalendar();
+            showToast('Calendario borrado');
+        }
+    };
+    
+    document.getElementById('clearAllShiftsBtn').onclick = function() {
+        if(confirm('¿Borrar TODOS los turnos y notas del calendario actual? Esta accion no se puede deshacer')) {
+            state.shiftData = {};
+            state.notes = {};
+            saveData();
+            renderCalendar();
+            showToast('Calendario limpiado');
+        }
+    };
+    
+    document.getElementById('helpBtn').onclick = function() {
+        closeSb();
+        showHelp();
     };
 }
 
@@ -523,15 +586,81 @@ function confirmApplyCycle(idx) {
     saveData();
     renderCalendar();
     closeModal('applyCycleModal');
-    
-    const toast = document.createElement('div');
-    toast.className = 'toast';
-    toast.textContent = 'Ciclo aplicado correctamente';
-    document.body.appendChild(toast);
-    setTimeout(function() { document.body.removeChild(toast); }, 2500);
+    showToast('Ciclo aplicado correctamente');
 }
 
 function closeModal(id) {
     const m = document.getElementById(id);
     if(m) document.body.removeChild(m);
+}
+
+function updateCalendarSelector() {
+    const sel = document.getElementById('calendarSelector');
+    sel.innerHTML = '';
+    Object.entries(state.calendars).forEach(function(e) {
+        const opt = document.createElement('option');
+        opt.value = e[0];
+        opt.textContent = e[1].name;
+        if(e[0] === state.activeCalendar) opt.selected = true;
+        sel.appendChild(opt);
+    });
+}
+
+function showToast(msg) {
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(function() { 
+        if(toast.parentNode) document.body.removeChild(toast); 
+    }, 2500);
+}
+
+function showHelp() {
+    const m = document.createElement('div');
+    m.id = 'helpModal';
+    m.className = 'modal-overlay visible';
+    
+    let html = '<div class="modal-content" style="max-width:600px;max-height:80vh;overflow-y:auto">';
+    html += '<h3 class="text-xl font-bold mb-4"><i class="fas fa-question-circle"></i> Como usar el Calendario</h3>';
+    
+    html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-edit" style="color:var(--accent-primary)"></i> Editar Turnos</h4>';
+    html += '<p class="text-sm mb-2">1. Pulsa el boton verde <i class="fas fa-edit"></i> (abajo derecha)</p>';
+    html += '<p class="text-sm mb-2">2. Selecciona un turno (M, T, N, L)</p>';
+    html += '<p class="text-sm">3. Haz click en los dias para asignar el turno</p></div>';
+    
+    html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-sync" style="color:var(--accent-primary)"></i> Ciclos de Turno</h4>';
+    html += '<p class="text-sm mb-2">Para turnos que se repiten (ej: 6 trabajo, 6 libres):</p>';
+    html += '<p class="text-sm mb-2">1. Menu → "Mis Ciclos"</p>';
+    html += '<p class="text-sm mb-2">2. "Crear Nuevo Ciclo"</p>';
+    html += '<p class="text-sm mb-2">3. Construye tu secuencia: M M M M M M L L L L L L</p>';
+    html += '<p class="text-sm mb-2">4. Guardalo con un nombre</p>';
+    html += '<p class="text-sm">5. Aplica el ciclo seleccionando dia de inicio y duracion</p></div>';
+    
+    html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-sticky-note" style="color:var(--accent-primary)"></i> Notas</h4>';
+    html += '<p class="text-sm">Haz doble-click en cualquier dia para anadir una nota o recordatorio</p></div>';
+    
+    html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-calendar-alt" style="color:var(--accent-primary)"></i> Varios Calendarios</h4>';
+    html += '<p class="text-sm mb-2">Puedes crear varios calendarios (ej: trabajo, personal, familia)</p>';
+    html += '<p class="text-sm">Menu → Seccion "Calendarios" → Escribe nombre → Crear</p></div>';
+    
+    html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-keyboard" style="color:var(--accent-primary)"></i> Atajos</h4>';
+    html += '<p class="text-sm mb-1">• Botones ← → para cambiar mes</p>';
+    html += '<p class="text-sm mb-1">• Boton <i class="fas fa-calendar-day"></i> para volver a hoy</p>';
+    html += '<p class="text-sm">• Menu hamburguesa ☰ para todas las opciones</p></div>';
+    
+    html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-palette" style="color:var(--accent-primary)"></i> Colores de Turnos</h4>';
+    html += '<div class="flex gap-2 flex-wrap">';
+    html += '<span class="px-3 py-1 rounded font-bold" style="background:#00ff88;color:#000">M - Manana</span>';
+    html += '<span class="px-3 py-1 rounded font-bold" style="background:#ff9500;color:#000">T - Tarde</span>';
+    html += '<span class="px-3 py-1 rounded font-bold" style="background:#5e5ce6;color:#fff">N - Noche</span>';
+    html += '<span class="px-3 py-1 rounded font-bold" style="background:#64d2ff;color:#000">L - Libre</span>';
+    html += '</div></div>';
+    
+    html += '<button class="btn btn-primary w-full" onclick="closeModal(\'helpModal\')">Entendido</button>';
+    html += '</div>';
+    
+    m.innerHTML = html;
+    document.body.appendChild(m);
+    m.onclick = function(e) { if(e.target === m) closeModal('helpModal'); };
 }
