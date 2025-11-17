@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const SHIFT_TYPES = {'M':{label:'Manana',color:'#00ff88'},'T':{label:'Tarde',color:'#ff9500'},'N':{label:'Noche',color:'#5e5ce6'},'L':{label:'Libre',color:'#64d2ff'}};
-const state = {currentDate:new Date(),selectedShiftType:null,shiftData:{},notes:{},isEditMode:false};
+const state = {currentDate:new Date(),selectedShiftType:null,shiftData:{},notes:{},cycles:[],isEditMode:false,isBuildingCycle:false,cycleBuilder:[]};
 
 function initCalendar() {
     renderCalendar();
@@ -160,6 +160,7 @@ function showNote(dateStr, date) {
 function saveData() {
     localStorage.setItem('guardia_shifts', JSON.stringify(state.shiftData));
     localStorage.setItem('guardia_notes', JSON.stringify(state.notes));
+    localStorage.setItem('guardia_cycles', JSON.stringify(state.cycles));
 }
 
 function loadData() {
@@ -168,6 +169,8 @@ function loadData() {
         if(s) state.shiftData = JSON.parse(s);
         const n = localStorage.getItem('guardia_notes');
         if(n) state.notes = JSON.parse(n);
+        const c = localStorage.getItem('guardia_cycles');
+        if(c) state.cycles = JSON.parse(c);
         renderCalendar();
     } catch(e) {}
 }
@@ -263,6 +266,11 @@ function setupSidebar() {
         localStorage.setItem('theme', isLight?'light':'dark');
         updateTheme();
     };
+    
+    document.getElementById('manageCyclesBtn').onclick = function() {
+        closeSb();
+        showCyclesManager();
+    };
 }
 
 function updateTheme() {
@@ -273,3 +281,257 @@ function updateTheme() {
 
 const saved = localStorage.getItem('theme');
 if(saved==='light') document.body.classList.add('light-mode');
+
+function showCyclesManager() {
+    const m = document.createElement('div');
+    m.id = 'cyclesModal';
+    m.className = 'modal-overlay visible';
+    
+    let html = '<div class="modal-content" style="max-width:600px;max-height:80vh;overflow-y:auto;"><h3 class="text-xl font-bold mb-4"><i class="fas fa-sync"></i> Mis Ciclos de Turno</h3>';
+    
+    if(state.cycles.length === 0) {
+        html += '<p class="text-center mb-4" style="color:var(--text-secondary)">No tienes ciclos guardados</p>';
+    } else {
+        state.cycles.forEach(function(cycle, idx) {
+            html += '<div class="mb-3 p-3 rounded-lg" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
+            html += '<div class="flex justify-between items-start mb-2">';
+            html += '<div><strong>' + cycle.name + '</strong><br><span class="text-xs" style="color:var(--text-secondary)">' + cycle.pattern.length + ' dias</span></div>';
+            html += '<div class="flex gap-1"><button class="btn-icon btn-primary" onclick="applyCycle(' + idx + ')"><i class="fas fa-play"></i></button>';
+            html += '<button class="btn-icon btn-secondary" onclick="editCycle(' + idx + ')"><i class="fas fa-edit"></i></button>';
+            html += '<button class="btn-icon btn-danger" onclick="deleteCycle(' + idx + ')"><i class="fas fa-trash"></i></button></div></div>';
+            html += '<div class="flex gap-1 flex-wrap">';
+            cycle.pattern.forEach(function(s) {
+                html += '<span class="px-2 py-1 rounded text-xs font-bold" style="background:' + SHIFT_TYPES[s].color + ';color:#000">' + s + '</span>';
+            });
+            html += '</div></div>';
+        });
+    }
+    
+    html += '<button class="btn btn-primary w-full mt-3" onclick="createNewCycle()"><i class="fas fa-plus"></i> Crear Nuevo Ciclo</button>';
+    html += '<button class="btn btn-secondary w-full mt-2" onclick="closeModal(\'cyclesModal\')">Cerrar</button>';
+    html += '</div>';
+    
+    m.innerHTML = html;
+    document.body.appendChild(m);
+    m.onclick = function(e) { if(e.target === m) closeModal('cyclesModal'); };
+}
+
+function createNewCycle() {
+    closeModal('cyclesModal');
+    const m = document.createElement('div');
+    m.id = 'createCycleModal';
+    m.className = 'modal-overlay visible';
+    
+    let html = '<div class="modal-content" style="max-width:500px"><h3 class="text-lg font-bold mb-3">Crear Ciclo</h3>';
+    html += '<label class="block mb-2 text-sm font-bold">Nombre del ciclo:</label>';
+    html += '<input type="text" id="cycleName" class="form-input w-full mb-3" placeholder="Ej: Turno 6x6">';
+    html += '<label class="block mb-2 text-sm font-bold">Construye tu secuencia:</label>';
+    html += '<div class="flex gap-2 mb-3 flex-wrap">';
+    Object.entries(SHIFT_TYPES).forEach(function(e) {
+        html += '<button class="btn" style="background:' + e[1].color + ';color:#000" onclick="addToCycle(\'' + e[0] + '\')">' + e[0] + '</button>';
+    });
+    html += '<button class="btn btn-danger" onclick="removeLastFromCycle()"><i class="fas fa-backspace"></i></button>';
+    html += '</div>';
+    html += '<div id="cyclePreview" class="p-3 rounded-lg mb-3 min-h-[60px]" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
+    html += '<div class="text-xs mb-1" style="color:var(--text-secondary)">Secuencia (0 dias):</div>';
+    html += '<div id="cyclePatternDisplay" class="flex gap-1 flex-wrap"></div>';
+    html += '</div>';
+    html += '<div class="flex gap-2"><button class="btn btn-primary flex-1" onclick="saveCycle()"><i class="fas fa-save"></i> Guardar</button>';
+    html += '<button class="btn btn-secondary flex-1" onclick="cancelCycleCreation()">Cancelar</button></div>';
+    html += '</div>';
+    
+    m.innerHTML = html;
+    document.body.appendChild(m);
+    state.cycleBuilder = [];
+}
+
+function addToCycle(shiftType) {
+    state.cycleBuilder.push(shiftType);
+    updateCyclePreview();
+}
+
+function removeLastFromCycle() {
+    state.cycleBuilder.pop();
+    updateCyclePreview();
+}
+
+function updateCyclePreview() {
+    const display = document.getElementById('cyclePatternDisplay');
+    const preview = document.getElementById('cyclePreview');
+    if(!display) return;
+    
+    display.innerHTML = '';
+    state.cycleBuilder.forEach(function(s) {
+        const span = document.createElement('span');
+        span.className = 'px-2 py-1 rounded text-xs font-bold';
+        span.style.background = SHIFT_TYPES[s].color;
+        span.style.color = '#000';
+        span.textContent = s;
+        display.appendChild(span);
+    });
+    
+    preview.querySelector('.text-xs').textContent = 'Secuencia (' + state.cycleBuilder.length + ' dias):';
+}
+
+function saveCycle() {
+    const name = document.getElementById('cycleName').value.trim();
+    if(!name) { alert('Pon un nombre al ciclo'); return; }
+    if(state.cycleBuilder.length === 0) { alert('Anade turnos a la secuencia'); return; }
+    
+    state.cycles.push({
+        name: name,
+        pattern: [...state.cycleBuilder]
+    });
+    
+    saveData();
+    closeModal('createCycleModal');
+    showCyclesManager();
+}
+
+function cancelCycleCreation() {
+    state.cycleBuilder = [];
+    closeModal('createCycleModal');
+    showCyclesManager();
+}
+
+function editCycle(idx) {
+    const cycle = state.cycles[idx];
+    closeModal('cyclesModal');
+    
+    const m = document.createElement('div');
+    m.id = 'editCycleModal';
+    m.className = 'modal-overlay visible';
+    
+    let html = '<div class="modal-content" style="max-width:500px"><h3 class="text-lg font-bold mb-3">Editar Ciclo</h3>';
+    html += '<label class="block mb-2 text-sm font-bold">Nombre:</label>';
+    html += '<input type="text" id="cycleName" class="form-input w-full mb-3" value="' + cycle.name + '">';
+    html += '<label class="block mb-2 text-sm font-bold">Secuencia:</label>';
+    html += '<div class="flex gap-2 mb-3 flex-wrap">';
+    Object.entries(SHIFT_TYPES).forEach(function(e) {
+        html += '<button class="btn" style="background:' + e[1].color + ';color:#000" onclick="addToCycle(\'' + e[0] + '\')">' + e[0] + '</button>';
+    });
+    html += '<button class="btn btn-danger" onclick="removeLastFromCycle()"><i class="fas fa-backspace"></i></button>';
+    html += '</div>';
+    html += '<div id="cyclePreview" class="p-3 rounded-lg mb-3 min-h-[60px]" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
+    html += '<div class="text-xs mb-1" style="color:var(--text-secondary)">Secuencia:</div>';
+    html += '<div id="cyclePatternDisplay" class="flex gap-1 flex-wrap"></div></div>';
+    html += '<div class="flex gap-2"><button class="btn btn-primary flex-1" onclick="updateCycle(' + idx + ')"><i class="fas fa-save"></i> Guardar</button>';
+    html += '<button class="btn btn-secondary flex-1" onclick="closeModal(\'editCycleModal\');showCyclesManager()">Cancelar</button></div>';
+    html += '</div>';
+    
+    m.innerHTML = html;
+    document.body.appendChild(m);
+    
+    state.cycleBuilder = [...cycle.pattern];
+    updateCyclePreview();
+}
+
+function updateCycle(idx) {
+    const name = document.getElementById('cycleName').value.trim();
+    if(!name || state.cycleBuilder.length === 0) { alert('Completa los datos'); return; }
+    
+    state.cycles[idx] = {
+        name: name,
+        pattern: [...state.cycleBuilder]
+    };
+    
+    saveData();
+    closeModal('editCycleModal');
+    showCyclesManager();
+}
+
+function deleteCycle(idx) {
+    if(confirm('¿Borrar este ciclo?')) {
+        state.cycles.splice(idx, 1);
+        saveData();
+        closeModal('cyclesModal');
+        showCyclesManager();
+    }
+}
+
+function applyCycle(idx) {
+    const cycle = state.cycles[idx];
+    closeModal('cyclesModal');
+    
+    const m = document.createElement('div');
+    m.id = 'applyCycleModal';
+    m.className = 'modal-overlay visible';
+    
+    const today = new Date();
+    const todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+    
+    let html = '<div class="modal-content" style="max-width:500px"><h3 class="text-lg font-bold mb-3">Aplicar Ciclo: ' + cycle.name + '</h3>';
+    html += '<div class="mb-3 p-3 rounded-lg" style="background:var(--bg-tertiary)"><div class="text-xs mb-2" style="color:var(--text-secondary)">Secuencia (' + cycle.pattern.length + ' dias):</div>';
+    html += '<div class="flex gap-1 flex-wrap">';
+    cycle.pattern.forEach(function(s) {
+        html += '<span class="px-2 py-1 rounded text-xs font-bold" style="background:' + SHIFT_TYPES[s].color + ';color:#000">' + s + '</span>';
+    });
+    html += '</div></div>';
+    html += '<label class="block mb-2 text-sm font-bold">Dia de inicio:</label>';
+    html += '<input type="date" id="cycleStartDate" class="form-input w-full mb-3" value="' + todayStr + '">';
+    html += '<label class="block mb-2 text-sm font-bold">Aplicar hasta:</label>';
+    html += '<select id="cycleEndType" class="form-select w-full mb-3">';
+    html += '<option value="3">3 meses</option>';
+    html += '<option value="6">6 meses</option>';
+    html += '<option value="12">12 meses</option>';
+    html += '<option value="custom">Fecha personalizada</option>';
+    html += '</select>';
+    html += '<input type="date" id="cycleEndDate" class="form-input w-full mb-3 hidden">';
+    html += '<div class="flex gap-2"><button class="btn btn-primary flex-1" onclick="confirmApplyCycle(' + idx + ')"><i class="fas fa-check"></i> Aplicar</button>';
+    html += '<button class="btn btn-secondary flex-1" onclick="closeModal(\'applyCycleModal\');showCyclesManager()">Cancelar</button></div>';
+    html += '</div>';
+    
+    m.innerHTML = html;
+    document.body.appendChild(m);
+    
+    document.getElementById('cycleEndType').onchange = function() {
+        const custom = document.getElementById('cycleEndDate');
+        if(this.value === 'custom') custom.classList.remove('hidden');
+        else custom.classList.add('hidden');
+    };
+}
+
+function confirmApplyCycle(idx) {
+    const cycle = state.cycles[idx];
+    const startDateStr = document.getElementById('cycleStartDate').value;
+    if(!startDateStr) { alert('Selecciona fecha de inicio'); return; }
+    
+    const startDate = new Date(startDateStr + 'T00:00:00');
+    let endDate;
+    
+    const endType = document.getElementById('cycleEndType').value;
+    if(endType === 'custom') {
+        const endDateStr = document.getElementById('cycleEndDate').value;
+        if(!endDateStr) { alert('Selecciona fecha final'); return; }
+        endDate = new Date(endDateStr + 'T00:00:00');
+    } else {
+        endDate = new Date(startDate);
+        endDate.setMonth(endDate.getMonth() + parseInt(endType));
+    }
+    
+    let currentDate = new Date(startDate);
+    let patternIdx = 0;
+    
+    while(currentDate <= endDate) {
+        const dateStr = formatDate(currentDate);
+        state.shiftData[dateStr] = cycle.pattern[patternIdx];
+        
+        patternIdx = (patternIdx + 1) % cycle.pattern.length;
+        currentDate.setDate(currentDate.getDate() + 1);
+    }
+    
+    saveData();
+    renderCalendar();
+    closeModal('applyCycleModal');
+    
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = 'Ciclo aplicado correctamente';
+    document.body.appendChild(toast);
+    setTimeout(function() { document.body.removeChild(toast); }, 2500);
+}
+
+function closeModal(id) {
+    const m = document.getElementById(id);
+    if(m) document.body.removeChild(m);
+}
