@@ -77,6 +77,60 @@ function renderCalendar() {
             dayCounter++;
         }
     }
+    renderNotesHistory();
+}
+
+function renderNotesHistory() {
+    const container = document.getElementById('notesHistory');
+    if(!container) return;
+    
+    const year = state.currentDate.getFullYear();
+    const month = state.currentDate.getMonth();
+    const monthNotes = [];
+    
+    Object.entries(state.notes).forEach(function(entry) {
+        const dateStr = entry[0];
+        const note = entry[1];
+        const d = new Date(dateStr);
+        if(d.getFullYear() === year && d.getMonth() === month) {
+            monthNotes.push({date: d, dateStr: dateStr, note: note});
+        }
+    });
+    
+    if(monthNotes.length === 0) {
+        container.innerHTML = '';
+        container.style.display = 'none';
+        return;
+    }
+    
+    monthNotes.sort(function(a, b) { return a.date - b.date; });
+    
+    container.style.display = 'block';
+    let html = '<div class="notes-header"><i class="fas fa-sticky-note"></i> Notas del mes (' + monthNotes.length + ')</div>';
+    
+    monthNotes.forEach(function(item) {
+        const dayNum = item.date.getDate();
+        const dayName = ['Dom','Lun','Mar','Mie','Jue','Vie','Sab'][item.date.getDay()];
+        const shift = state.shiftData[item.dateStr];
+        
+        html += '<div class="note-item" onclick="showNoteFromHistory(\'' + item.dateStr + '\')">';
+        html += '<div class="note-date">';
+        html += '<div class="note-day-badge">' + dayNum + '</div>';
+        html += '<div class="note-day-name">' + dayName + '</div>';
+        if(shift) {
+            html += '<span class="note-shift-badge" style="background:' + SHIFT_TYPES[shift].color + ';color:#000">' + shift + '</span>';
+        }
+        html += '</div>';
+        html += '<div class="note-text">' + item.note + '</div>';
+        html += '</div>';
+    });
+    
+    container.innerHTML = html;
+}
+
+function showNoteFromHistory(dateStr) {
+    const d = new Date(dateStr);
+    showNote(dateStr, d);
 }
 
 function createCell(date, num, isCurr, today) {
@@ -106,16 +160,23 @@ function createCell(date, num, isCurr, today) {
         const nDiv = document.createElement('div');
         nDiv.className = 'note-indicator';
         nDiv.innerHTML = '<i class="fas fa-sticky-note"></i>';
+        nDiv.title = state.notes[dateStr].substring(0, 50);
         cell.appendChild(nDiv);
-    }
-    
-    if(isCurr && state.isEditMode && state.selectedShiftType) {
-        cell.style.cursor = 'pointer';
-        cell.onclick = function() { setShift(dateStr, state.selectedShiftType); };
     }
     
     if(isCurr) {
         cell.ondblclick = function() { showNote(dateStr, date); };
+        
+        if(state.isEditMode) {
+            cell.style.cursor = 'pointer';
+            cell.onclick = function() {
+                if(state.selectedShiftType) {
+                    setShift(dateStr, state.selectedShiftType);
+                } else {
+                    showToast('Selecciona un turno primero');
+                }
+            };
+        }
     }
     
     return cell;
