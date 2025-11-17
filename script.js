@@ -1,60 +1,27 @@
-// CALENDARIO GUARD-IA
-
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('DOM cargado');
-    
-    const loader = document.getElementById('app-loader');
-    if (loader) loader.style.display = 'none';
-    
-    const appContent = document.getElementById('app-content');
-    if (appContent) appContent.classList.remove('hidden');
-    
-    const mainCalendarArea = document.getElementById('mainCalendarArea');
-    if (mainCalendarArea) mainCalendarArea.classList.remove('hidden');
-    
-    const footerStatus = document.getElementById('footer-status');
-    if (footerStatus) footerStatus.style.display = 'none';
-    
+    document.getElementById('app-loader').style.display = 'none';
+    document.getElementById('app-content').classList.remove('hidden');
+    document.getElementById('mainCalendarArea').classList.remove('hidden');
     initCalendar();
 });
 
-const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-
-const SHIFT_TYPES = {
-    'M': { label: 'Manana', color: '#00ff88' },
-    'T': { label: 'Tarde', color: '#ff9500' },
-    'N': { label: 'Noche', color: '#5e5ce6' },
-    'L': { label: 'Libre', color: '#64d2ff' }
-};
-
-const state = {
-    currentDate: new Date(),
-    selectedShiftType: null,
-    shiftData: {},
-    notes: {},
-    isEditMode: false
-};
+const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+const SHIFT_TYPES = {'M':{label:'Manana',color:'#00ff88'},'T':{label:'Tarde',color:'#ff9500'},'N':{label:'Noche',color:'#5e5ce6'},'L':{label:'Libre',color:'#64d2ff'}};
+const state = {currentDate:new Date(),selectedShiftType:null,shiftData:{},notes:{},isEditMode:false};
 
 function initCalendar() {
     renderCalendar();
     setupEvents();
-    loadFromLocalStorage();
+    loadData();
 }
 
 function renderCalendar() {
     const year = state.currentDate.getFullYear();
     const month = state.currentDate.getMonth();
-    
-    const monthYearDisplay = document.getElementById('currentMonthYear');
-    if (monthYearDisplay) monthYearDisplay.textContent = MONTH_NAMES[month] + ' ' + year;
-    
-    const calendarTitle = document.getElementById('calendarTitle');
-    if (calendarTitle) calendarTitle.textContent = MONTH_NAMES[month] + ' ' + year;
+    document.getElementById('calendarTitle').textContent = MONTH_NAMES[month] + ' ' + year;
     
     const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const daysInMonth = lastDay.getDate();
-    
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
     let firstDayOfWeek = firstDay.getDay();
     firstDayOfWeek = firstDayOfWeek === 0 ? 7 : firstDayOfWeek;
     
@@ -63,344 +30,246 @@ function renderCalendar() {
     const prevMonthYear = month === 0 ? year - 1 : year;
     const prevMonthLastDay = new Date(prevMonthYear, prevMonth + 1, 0).getDate();
     
-    const calendarGrid = document.getElementById('calendarGrid');
-    if (!calendarGrid) return;
+    const grid = document.getElementById('calendarGrid');
+    grid.innerHTML = '';
     
-    calendarGrid.innerHTML = '';
-    
-    const totalWeeks = 6;
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    today.setHours(0,0,0,0);
     
     let dayCounter = 1 - prevMonthDays;
-    let weekNumber = getWeekNumber(new Date(year, month, 1));
+    let weekNum = getWeekNumber(new Date(year, month, 1));
     
-    for (let week = 0; week < totalWeeks; week++) {
-        const weekCell = createWeekNumberCell(weekNumber);
-        calendarGrid.appendChild(weekCell);
-        weekNumber++;
+    for(let w=0; w<6; w++) {
+        const wCell = document.createElement('div');
+        wCell.className = 'day-cell week-number-cell';
+        wCell.innerHTML = '<div class="day-number">' + weekNum + '</div>';
+        grid.appendChild(wCell);
+        weekNum++;
         
-        for (let day = 0; day < 7; day++) {
-            let cellDate;
-            let isCurrentMonth = true;
-            let dayNumber;
+        for(let d=0; d<7; d++) {
+            let cellDate, dayNum, isCurrent = true;
             
-            if (dayCounter < 1) {
-                dayNumber = prevMonthLastDay + dayCounter;
-                cellDate = new Date(prevMonthYear, prevMonth, dayNumber);
-                isCurrentMonth = false;
-            } else if (dayCounter > daysInMonth) {
-                dayNumber = dayCounter - daysInMonth;
-                const nextMonth = month === 11 ? 0 : month + 1;
-                const nextMonthYear = month === 11 ? year + 1 : year;
-                cellDate = new Date(nextMonthYear, nextMonth, dayNumber);
-                isCurrentMonth = false;
+            if(dayCounter < 1) {
+                dayNum = prevMonthLastDay + dayCounter;
+                cellDate = new Date(prevMonthYear, prevMonth, dayNum);
+                isCurrent = false;
+            } else if(dayCounter > daysInMonth) {
+                dayNum = dayCounter - daysInMonth;
+                const nm = month === 11 ? 0 : month + 1;
+                const ny = month === 11 ? year + 1 : year;
+                cellDate = new Date(ny, nm, dayNum);
+                isCurrent = false;
             } else {
-                dayNumber = dayCounter;
-                cellDate = new Date(year, month, dayNumber);
+                dayNum = dayCounter;
+                cellDate = new Date(year, month, dayNum);
             }
             
-            const cell = createDayCell(cellDate, dayNumber, isCurrentMonth, today);
-            calendarGrid.appendChild(cell);
-            
+            const cell = createCell(cellDate, dayNum, isCurrent, today);
+            grid.appendChild(cell);
             dayCounter++;
         }
     }
 }
 
-function createWeekNumberCell(weekNumber) {
-    const cell = document.createElement('div');
-    cell.className = 'day-cell week-number-cell';
-    cell.innerHTML = '<div class="day-number">' + weekNumber + '</div>';
-    return cell;
-}
-
-function createDayCell(date, dayNumber, isCurrentMonth, today) {
+function createCell(date, num, isCurr, today) {
     const cell = document.createElement('div');
     cell.className = 'day-cell';
+    if(!isCurr) cell.classList.add('other-month');
+    if(date.getTime() === today.getTime()) cell.classList.add('current-day');
     
-    if (!isCurrentMonth) cell.classList.add('other-month');
-    if (date.getTime() === today.getTime()) cell.classList.add('current-day');
-    
-    const dayNumberDiv = document.createElement('div');
-    dayNumberDiv.className = 'day-number';
-    dayNumberDiv.textContent = dayNumber;
-    cell.appendChild(dayNumberDiv);
+    const dayDiv = document.createElement('div');
+    dayDiv.className = 'day-number';
+    dayDiv.textContent = num;
+    cell.appendChild(dayDiv);
     
     const dateStr = formatDate(date);
-    const shiftType = state.shiftData[dateStr];
+    const shift = state.shiftData[dateStr];
     
-    if (shiftType && SHIFT_TYPES[shiftType]) {
-        const shiftIndicator = document.createElement('div');
-        shiftIndicator.className = 'shift-indicator';
-        shiftIndicator.textContent = shiftType;
-        shiftIndicator.style.backgroundColor = SHIFT_TYPES[shiftType].color;
-        shiftIndicator.style.color = '#000';
-        cell.appendChild(shiftIndicator);
+    if(shift && SHIFT_TYPES[shift]) {
+        const sDiv = document.createElement('div');
+        sDiv.className = 'shift-indicator';
+        sDiv.textContent = shift;
+        sDiv.style.backgroundColor = SHIFT_TYPES[shift].color;
+        sDiv.style.color = '#000';
+        cell.appendChild(sDiv);
     }
     
-    if (state.notes && state.notes[dateStr]) {
-        const noteIndicator = document.createElement('div');
-        noteIndicator.className = 'note-indicator';
-        noteIndicator.innerHTML = '<i class="fas fa-sticky-note"></i>';
-        cell.appendChild(noteIndicator);
+    if(state.notes[dateStr]) {
+        const nDiv = document.createElement('div');
+        nDiv.className = 'note-indicator';
+        nDiv.innerHTML = '<i class="fas fa-sticky-note"></i>';
+        cell.appendChild(nDiv);
     }
     
-    if (isCurrentMonth && state.isEditMode && state.selectedShiftType) {
+    if(isCurr && state.isEditMode && state.selectedShiftType) {
         cell.style.cursor = 'pointer';
-        cell.addEventListener('click', function() {
-            setShift(dateStr, state.selectedShiftType);
-        });
+        cell.onclick = function() { setShift(dateStr, state.selectedShiftType); };
     }
     
-    if (isCurrentMonth) {
-        cell.addEventListener('contextmenu', function(e) {
-            e.preventDefault();
-            showNoteModal(dateStr, date);
-        });
-        
-        cell.addEventListener('dblclick', function() {
-            showNoteModal(dateStr, date);
-        });
+    if(isCurr) {
+        cell.ondblclick = function() { showNote(dateStr, date); };
     }
     
     return cell;
 }
 
-function formatDate(date) {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return year + '-' + month + '-' + day;
+function formatDate(d) {
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 
-function getWeekNumber(date) {
-    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-    const dayNum = d.getUTCDay() || 7;
-    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+function getWeekNumber(d) {
+    const dd = new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
+    const dayNum = dd.getUTCDay() || 7;
+    dd.setUTCDate(dd.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(dd.getUTCFullYear(),0,1));
+    return Math.ceil((((dd - yearStart)/86400000)+1)/7);
 }
 
-function setShift(dateStr, shiftType) {
-    if (shiftType === 'erase') {
-        delete state.shiftData[dateStr];
-    } else {
-        state.shiftData[dateStr] = shiftType;
-    }
+function setShift(dateStr, type) {
+    if(type==='erase') delete state.shiftData[dateStr]; else state.shiftData[dateStr]=type;
+    saveData();
     renderCalendar();
-    saveToLocalStorage();
 }
 
-function saveToLocalStorage() {
-    try {
-        localStorage.setItem('guardia_shifts', JSON.stringify(state.shiftData));
-        localStorage.setItem('guardia_notes', JSON.stringify(state.notes));
-    } catch (e) {
-        console.error('Error guardando', e);
-    }
-}
-
-function loadFromLocalStorage() {
-    try {
-        const saved = localStorage.getItem('guardia_shifts');
-        if (saved) state.shiftData = JSON.parse(saved);
-        
-        const savedNotes = localStorage.getItem('guardia_notes');
-        if (savedNotes) state.notes = JSON.parse(savedNotes);
-        
+function showNote(dateStr, date) {
+    const ex = state.notes[dateStr] || '';
+    const m = document.createElement('div');
+    m.className = 'modal-overlay visible';
+    m.innerHTML = '<div class="modal-content"><h3 class="text-lg font-bold mb-3">Nota ' + date.getDate() + '/' + (date.getMonth()+1) + '</h3><textarea id="noteText" class="form-input w-full mb-3" rows="4">'+ex+'</textarea><div class="flex gap-2"><button id="saveNote" class="btn btn-primary flex-1">Guardar</button><button id="delNote" class="btn btn-danger flex-1">Borrar</button><button id="cancelNote" class="btn btn-secondary flex-1">Cancelar</button></div></div>';
+    document.body.appendChild(m);
+    
+    document.getElementById('saveNote').onclick = function() {
+        const txt = document.getElementById('noteText').value.trim();
+        if(txt) state.notes[dateStr]=txt; else delete state.notes[dateStr];
+        saveData();
         renderCalendar();
-    } catch (e) {
-        console.error('Error cargando', e);
-    }
+        document.body.removeChild(m);
+    };
+    document.getElementById('delNote').onclick = function() {
+        delete state.notes[dateStr];
+        saveData();
+        renderCalendar();
+        document.body.removeChild(m);
+    };
+    document.getElementById('cancelNote').onclick = function() {
+        document.body.removeChild(m);
+    };
+    m.onclick = function(e) { if(e.target===m) document.body.removeChild(m); };
+}
+
+function saveData() {
+    localStorage.setItem('guardia_shifts', JSON.stringify(state.shiftData));
+    localStorage.setItem('guardia_notes', JSON.stringify(state.notes));
+}
+
+function loadData() {
+    try {
+        const s = localStorage.getItem('guardia_shifts');
+        if(s) state.shiftData = JSON.parse(s);
+        const n = localStorage.getItem('guardia_notes');
+        if(n) state.notes = JSON.parse(n);
+        renderCalendar();
+    } catch(e) {}
 }
 
 function setupEvents() {
-    const prevMonthBtn = document.getElementById('prevMonth');
-    const nextMonthBtn = document.getElementById('nextMonth');
-    const todayBtn = document.getElementById('todayBtn');
+    document.getElementById('prevMonth').onclick = function() {
+        state.currentDate.setMonth(state.currentDate.getMonth()-1);
+        renderCalendar();
+    };
+    document.getElementById('nextMonth').onclick = function() {
+        state.currentDate.setMonth(state.currentDate.getMonth()+1);
+        renderCalendar();
+    };
+    document.getElementById('todayBtn').onclick = function() {
+        state.currentDate = new Date();
+        renderCalendar();
+    };
     
-    if (prevMonthBtn) {
-        prevMonthBtn.addEventListener('click', function() {
-            state.currentDate.setMonth(state.currentDate.getMonth() - 1);
-            renderCalendar();
-        });
-    }
+    const fab = document.getElementById('fabEditBtn');
+    const panel = document.getElementById('floatingEditPanel');
+    fab.classList.remove('hidden');
     
-    if (nextMonthBtn) {
-        nextMonthBtn.addEventListener('click', function() {
-            state.currentDate.setMonth(state.currentDate.getMonth() + 1);
-            renderCalendar();
-        });
-    }
-    
-    if (todayBtn) {
-        todayBtn.addEventListener('click', function() {
-            state.currentDate = new Date();
-            renderCalendar();
-        });
-    }
-    
-    const fabBtn = document.getElementById('fabEditBtn');
-    const editPanel = document.getElementById('floatingEditPanel');
-    
-    if (fabBtn) {
-        fabBtn.classList.remove('hidden');
-        fabBtn.addEventListener('click', function() {
-            state.isEditMode = !state.isEditMode;
-            
-            if (state.isEditMode) {
-                fabBtn.classList.add('edit-active');
-                if (editPanel) editPanel.classList.add('active');
-            } else {
-                fabBtn.classList.remove('edit-active');
-                if (editPanel) editPanel.classList.remove('active');
-                state.selectedShiftType = null;
-                updateShiftButtons();
-            }
-            renderCalendar();
-        });
-    }
-    
-    const closeEditPanelBtn = document.getElementById('closeEditPanelBtn');
-    if (closeEditPanelBtn) {
-        closeEditPanelBtn.addEventListener('click', function() {
-            state.isEditMode = false;
-            if (fabBtn) fabBtn.classList.remove('edit-active');
-            if (editPanel) editPanel.classList.remove('active');
+    fab.onclick = function() {
+        state.isEditMode = !state.isEditMode;
+        if(state.isEditMode) {
+            fab.classList.add('edit-active');
+            panel.classList.add('active');
+        } else {
+            fab.classList.remove('edit-active');
+            panel.classList.remove('active');
             state.selectedShiftType = null;
-            updateShiftButtons();
-            renderCalendar();
-        });
-    }
+            updateBtns();
+        }
+        renderCalendar();
+    };
     
-    setupShiftButtons();
+    document.getElementById('closeEditPanelBtn').onclick = function() {
+        state.isEditMode = false;
+        fab.classList.remove('edit-active');
+        panel.classList.remove('active');
+        state.selectedShiftType = null;
+        updateBtns();
+        renderCalendar();
+    };
+    
+    setupShiftBtns();
     setupSidebar();
 }
 
-function setupShiftButtons() {
-    const shiftSelector = document.getElementById('shiftSelector');
-    if (!shiftSelector) return;
-    
-    shiftSelector.innerHTML = '';
-    
-    Object.entries(SHIFT_TYPES).forEach(function(entry) {
-        const type = entry[0];
-        const info = entry[1];
+function setupShiftBtns() {
+    const sel = document.getElementById('shiftSelector');
+    sel.innerHTML = '';
+    Object.entries(SHIFT_TYPES).forEach(function(e) {
         const btn = document.createElement('button');
         btn.className = 'shift-button';
-        btn.textContent = type + ' - ' + info.label;
-        btn.style.backgroundColor = info.color;
+        btn.textContent = e[0] + ' - ' + e[1].label;
+        btn.style.backgroundColor = e[1].color;
         btn.style.color = '#000';
-        btn.dataset.shiftType = type;
-        
-        btn.addEventListener('click', function() {
-            state.selectedShiftType = type;
-            updateShiftButtons();
-        });
-        
-        shiftSelector.appendChild(btn);
+        btn.dataset.shiftType = e[0];
+        btn.onclick = function() { state.selectedShiftType=e[0]; updateBtns(); };
+        sel.appendChild(btn);
     });
     
-    const eraseBtn = document.querySelector('[data-shift-type="erase"]');
-    if (eraseBtn) {
-        eraseBtn.addEventListener('click', function() {
-            state.selectedShiftType = 'erase';
-            updateShiftButtons();
-        });
-    }
+    const eBtn = document.querySelector('[data-shift-type="erase"]');
+    if(eBtn) eBtn.onclick = function() { state.selectedShiftType='erase'; updateBtns(); };
 }
 
-function updateShiftButtons() {
-    document.querySelectorAll('.shift-button, .turno-btn').forEach(function(btn) {
-        if (btn.dataset.shiftType === state.selectedShiftType) {
-            btn.classList.add('selected');
-        } else {
-            btn.classList.remove('selected');
-        }
+function updateBtns() {
+    document.querySelectorAll('.shift-button, .turno-btn').forEach(function(b) {
+        if(b.dataset.shiftType === state.selectedShiftType) b.classList.add('selected');
+        else b.classList.remove('selected');
     });
 }
 
 function setupSidebar() {
-    const hamburgerBtn = document.getElementById('hamburgerBtn');
-    const sidebar = document.getElementById('sidebar');
-    const sidebarOverlay = document.getElementById('sidebarOverlay');
-    const closeSidebarBtn = document.getElementById('closeSidebarBtn');
+    const ham = document.getElementById('hamburgerBtn');
+    const sb = document.getElementById('sidebar');
+    const ov = document.getElementById('sidebarOverlay');
+    const close = document.getElementById('closeSidebarBtn');
     
-    function openSidebar() {
-        if (sidebar) sidebar.classList.add('active');
-        if (sidebarOverlay) sidebarOverlay.classList.add('active');
-    }
+    function open() { sb.classList.add('active'); ov.classList.add('active'); }
+    function closeSb() { sb.classList.remove('active'); ov.classList.remove('active'); }
     
-    function closeSidebar() {
-        if (sidebar) sidebar.classList.remove('active');
-        if (sidebarOverlay) sidebarOverlay.classList.remove('active');
-    }
+    ham.onclick = open;
+    close.onclick = closeSb;
+    ov.onclick = closeSb;
     
-    if (hamburgerBtn) hamburgerBtn.addEventListener('click', openSidebar);
-    if (closeSidebarBtn) closeSidebarBtn.addEventListener('click', closeSidebar);
-    if (sidebarOverlay) sidebarOverlay.addEventListener('click', closeSidebar);
-    
-    const themeToggleBtn = document.getElementById('themeToggleBtn');
-    if (themeToggleBtn) {
-        updateThemeButton();
-        themeToggleBtn.addEventListener('click', toggleTheme);
-    }
+    const theme = document.getElementById('themeToggleBtn');
+    updateTheme();
+    theme.onclick = function() {
+        document.body.classList.toggle('light-mode');
+        const isLight = document.body.classList.contains('light-mode');
+        localStorage.setItem('theme', isLight?'light':'dark');
+        updateTheme();
+    };
 }
 
-function toggleTheme() {
-    document.body.classList.toggle('light-mode');
+function updateTheme() {
+    const btn = document.getElementById('themeToggleBtn');
     const isLight = document.body.classList.contains('light-mode');
-    localStorage.setItem('theme', isLight ? 'light' : 'dark');
-    updateThemeButton();
+    btn.innerHTML = isLight ? '<i class="fas fa-moon"></i> Modo Oscuro' : '<i class="fas fa-sun"></i> Modo Claro';
 }
 
-function updateThemeButton() {
-    const themeBtn = document.getElementById('themeToggleBtn');
-    if (!themeBtn) return;
-    
-    const isLight = document.body.classList.contains('light-mode');
-    themeBtn.innerHTML = isLight ? '<i class="fas fa-moon"></i> Modo Oscuro' : '<i class="fas fa-sun"></i> Modo Claro';
-}
-
-const savedTheme = localStorage.getItem('theme');
-if (savedTheme === 'light') document.body.classList.add('light-mode');
-
-function showNoteModal(dateStr, date) {
-    const existingNote = state.notes[dateStr] || '';
-    
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay visible';
-    modal.innerHTML = '<div class="modal-content"><h3 class="text-lg font-bold mb-3">Nota para ' + date.getDate() + ' de ' + MONTH_NAMES[date.getMonth()] + '</h3><textarea id="noteText" class="form-input w-full mb-3" rows="4" placeholder="Escribe tu nota aqui...">' + existingNote + '</textarea><div class="flex gap-2"><button id="saveNoteBtn" class="btn btn-primary flex-1">Guardar</button><button id="deleteNoteBtn" class="btn btn-danger flex-1">Borrar</button><button id="cancelNoteBtn" class="btn btn-secondary flex-1">Cancelar</button></div></div>';
-    
-    document.body.appendChild(modal);
-    
-    document.getElementById('saveNoteBtn').addEventListener('click', function() {
-        const noteText = document.getElementById('noteText').value.trim();
-        if (noteText) {
-            state.notes[dateStr] = noteText;
-        } else {
-            delete state.notes[dateStr];
-        }
-        saveToLocalStorage();
-        renderCalendar();
-        document.body.removeChild(modal);
-    });
-    
-    document.getElementById('deleteNoteBtn').addEventListener('click', function() {
-        delete state.notes[dateStr];
-        saveToLocalStorage();
-        renderCalendar();
-        document.body.removeChild(modal);
-    });
-    
-    document.getElementById('cancelNoteBtn').addEventListener('click', function() {
-        document.body.removeChild(modal);
-    });
-    
-    modal.addEventListener('click', function(e) {
-        if (e.target === modal) {
-            document.body.removeChild(modal);
-        }
-    });
-}
+const saved = localStorage.getItem('theme');
+if(saved==='light') document.body.classList.add('light-mode');
