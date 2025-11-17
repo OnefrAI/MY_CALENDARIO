@@ -79,10 +79,11 @@ body {
     z-index: 100;
     background-color: var(--bg-primary);
     border-bottom: 1px solid var(--border-primary);
-    padding: 0.5rem 0.75rem;
+    padding: 0.5rem 0.5rem;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 0.5rem;
     min-height: 3rem;
 }
 
@@ -283,6 +284,7 @@ main {
     flex: 1;
     display: flex;
     flex-direction: column;
+    padding-bottom: 320px;
 }
 
 #mainCalendarArea {
@@ -436,6 +438,16 @@ main {
     10%, 20% { 
         transform: rotate(15deg); 
     }
+}
+
+.note-indicator {
+    position: absolute;
+    top: 0.25rem;
+    right: 0.25rem;
+    font-size: 0.65rem;
+    color: var(--accent-primary);
+    z-index: 2;
+    animation: pulse 2s infinite;
 }
 
 @keyframes pulse {
