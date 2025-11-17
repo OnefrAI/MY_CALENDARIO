@@ -7,7 +7,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const SHIFT_TYPES = {'M':{label:'Manana',color:'#00ff88'},'T':{label:'Tarde',color:'#ff9500'},'N':{label:'Noche',color:'#5e5ce6'},'L':{label:'Libre',color:'#64d2ff'}};
-const state = {currentDate:new Date(),selectedShiftType:null,shiftData:{},notes:{},cycles:[],calendars:{default:{name:'Mi Calendario',shifts:{},notes:{}}},activeCalendar:'default',isEditMode:false,isBuildingCycle:false,cycleBuilder:[]};
+const state = {currentDate:new Date(),selectedShiftType:null,shiftData:{},notes:{},cycles:[],calendars:{default:{name:'Mi Calendario',shifts:{},notes:{}}},activeCalendar:'default',isEditMode:false,isBuildingCycle:false,cycleBuilder:[],touchStartX:0,touchStartY:0};
 
 function initCalendar() {
     loadActiveCalendar();
@@ -138,6 +138,9 @@ function createCell(date, num, isCurr, today) {
     cell.className = 'day-cell';
     if(!isCurr) cell.classList.add('other-month');
     if(date.getTime() === today.getTime()) cell.classList.add('current-day');
+    
+    const isPast = date < today;
+    if(isPast && isCurr) cell.classList.add('past-day');
     
     const dayDiv = document.createElement('div');
     dayDiv.className = 'day-number';
@@ -291,6 +294,7 @@ function setupEvents() {
     
     setupShiftBtns();
     setupSidebar();
+    setupSwipeGestures();
 }
 
 function setupShiftBtns() {
@@ -405,6 +409,54 @@ function updateTheme() {
 
 const saved = localStorage.getItem('theme');
 if(saved==='light') document.body.classList.add('light-mode');
+
+function setupSwipeGestures() {
+    const calendarArea = document.getElementById('mainCalendarArea');
+    const calendarGrid = document.getElementById('calendarGrid');
+    let startX = 0;
+    let startY = 0;
+    let isDragging = false;
+    
+    calendarArea.addEventListener('touchstart', function(e) {
+        if(state.isEditMode) return;
+        startX = e.touches[0].clientX;
+        startY = e.touches[0].clientY;
+        isDragging = true;
+    }, {passive: true});
+    
+    calendarArea.addEventListener('touchmove', function(e) {
+        if(!isDragging || state.isEditMode) return;
+        
+        const currentX = e.touches[0].clientX;
+        const diffX = startX - currentX;
+        
+        if(Math.abs(diffX) > 20) {
+            calendarGrid.classList.add('swipe-transition');
+        }
+    }, {passive: true});
+    
+    calendarArea.addEventListener('touchend', function(e) {
+        if(!isDragging || state.isEditMode) return;
+        isDragging = false;
+        
+        const endX = e.changedTouches[0].clientX;
+        const endY = e.changedTouches[0].clientY;
+        
+        const diffX = startX - endX;
+        const diffY = startY - endY;
+        
+        calendarGrid.classList.remove('swipe-transition');
+        
+        if(Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 60) {
+            if(diffX > 0) {
+                state.currentDate.setMonth(state.currentDate.getMonth() + 1);
+            } else {
+                state.currentDate.setMonth(state.currentDate.getMonth() - 1);
+            }
+            renderCalendar();
+        }
+    }, {passive: true});
+}
 
 function showCyclesManager() {
     const m = document.createElement('div');
