@@ -152,29 +152,32 @@ function createCell(date, num, isCurr, today) {
     const isPast = date < today;
     if(isPast && isCurr) cell.classList.add('past-day');
     
+    const dateStr = formatDate(date);
+    const shift = state.shiftData[dateStr];
+    
+    // Si hay turno, colorear toda la casilla
+    if(shift && SHIFT_TYPES[shift]) {
+        cell.style.backgroundColor = SHIFT_TYPES[shift].color;
+        cell.classList.add('has-shift');
+        
+        // Badge del tipo de turno en la esquina superior izquierda
+        const shiftBadge = document.createElement('div');
+        shiftBadge.className = 'shift-type-badge';
+        shiftBadge.textContent = shift;
+        cell.appendChild(shiftBadge);
+    }
+    
     const dayDiv = document.createElement('div');
     dayDiv.className = 'day-number';
     dayDiv.textContent = num;
     cell.appendChild(dayDiv);
     
-    const dateStr = formatDate(date);
-    const shift = state.shiftData[dateStr];
-    
-    if(shift && SHIFT_TYPES[shift]) {
-        const sDiv = document.createElement('div');
-        sDiv.className = 'shift-indicator';
-        sDiv.textContent = shift;
-        sDiv.style.backgroundColor = SHIFT_TYPES[shift].color;
-        sDiv.style.color = '#000';
-        cell.appendChild(sDiv);
-    }
-    
+    // Mostrar nota si existe
     if(state.notes[dateStr]) {
-        const nDiv = document.createElement('div');
-        nDiv.className = 'note-indicator';
-        nDiv.innerHTML = '<i class="fas fa-sticky-note"></i>';
-        nDiv.title = state.notes[dateStr].substring(0, 50);
-        cell.appendChild(nDiv);
+        const noteDiv = document.createElement('div');
+        noteDiv.className = 'note-content';
+        noteDiv.textContent = state.notes[dateStr];
+        cell.appendChild(noteDiv);
     }
     
     if(isCurr) {
