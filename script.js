@@ -45,15 +45,8 @@ function renderCalendar() {
     today.setHours(0,0,0,0);
     
     let dayCounter = 1 - prevMonthDays;
-    let weekNum = getWeekNumber(new Date(year, month, 1));
     
     for(let w=0; w<6; w++) {
-        const wCell = document.createElement('div');
-        wCell.className = 'day-cell week-number-cell';
-        wCell.innerHTML = '<div class="day-number">' + weekNum + '</div>';
-        grid.appendChild(wCell);
-        weekNum++;
-        
         for(let d=0; d<7; d++) {
             let cellDate, dayNum, isCurrent = true;
             
