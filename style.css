@@ -301,33 +301,48 @@ main {
     position: relative;
     background-color: var(--bg-secondary);
     cursor: pointer;
-    transition: background-color 0.15s ease;
+    transition: all 0.2s ease;
+}
+
+.day-cell.has-shift {
+    box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.1);
 }
 
 .day-cell:hover:not(.other-month) {
-    background-color: var(--bg-tertiary);
+    filter: brightness(1.1);
 }
 
 .day-cell:active:not(.other-month) {
-    background-color: rgba(57, 255, 20, 0.1);
+    transform: scale(0.98);
 }
 
 .day-number {
-    font-size: 1.3rem;
-    font-weight: 600;
-    width: 2.2rem;
-    height: 2.2rem;
+    font-size: 1.4rem;
+    font-weight: 700;
+    width: 2.5rem;
+    height: 2.5rem;
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: 50%;
-    z-index: 1;
+    z-index: 2;
     flex-shrink: 0;
+    background-color: rgba(0, 0, 0, 0.25);
+    color: #ffffff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.day-cell:not(.has-shift) .day-number {
+    background-color: transparent;
+    color: var(--text-primary);
+    text-shadow: none;
 }
 
 .current-day .day-number {
-    background-color: var(--accent-primary);
-    color: var(--accent-text);
+    background-color: var(--accent-primary) !important;
+    color: var(--accent-text) !important;
+    box-shadow: 0 2px 8px rgba(57, 255, 20, 0.4);
+    text-shadow: none;
 }
 
 .other-month {
@@ -336,42 +351,65 @@ main {
 }
 
 /* ==========================================
-   INDICADORES DE TURNOS Y NOTAS
+   BADGE DE TIPO DE TURNO
+   ========================================== */
+
+.shift-type-badge {
+    position: absolute;
+    top: 0.25rem;
+    left: 0.25rem;
+    background-color: rgba(0, 0, 0, 0.6);
+    color: #ffffff;
+    padding: 0.15rem 0.4rem;
+    border-radius: 0.25rem;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    z-index: 1;
+    backdrop-filter: blur(4px);
+}
+
+/* ==========================================
+   CONTENIDO DE NOTAS EN LAS CELDAS
+   ========================================== */
+
+.note-content {
+    width: 100%;
+    padding: 0.3rem;
+    background-color: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    border-radius: 0.35rem;
+    font-size: 0.7rem;
+    line-height: 1.2;
+    color: #ffffff;
+    text-align: center;
+    word-wrap: break-word;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    z-index: 1;
+    max-height: 2.8rem;
+    font-weight: 500;
+}
+
+.day-cell:not(.has-shift) .note-content {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-primary);
+}
+
+/* ==========================================
+   INDICADORES DE TURNOS Y NOTAS (ANTIGUOS - YA NO SE USAN)
    ========================================== */
 
 .shift-indicator {
-    font-size: 0.85rem;
-    font-weight: 700;
-    padding: 0.25rem 0.5rem;
-    border-radius: 0.35rem;
-    color: var(--shift-text);
-    text-transform: uppercase;
-    position: relative;
-    min-width: 1.8rem;
-    text-align: center;
-    margin-top: auto;
+    display: none;
 }
 
 .note-indicator {
-    position: absolute;
-    top: 0.25rem;
-    right: 0.25rem;
-    font-size: 0.9rem;
-    color: var(--accent-primary);
-    z-index: 2;
-    animation: pulse 2s infinite;
-    background: rgba(57, 255, 20, 0.15);
-    border-radius: 50%;
-    width: 1.5rem;
-    height: 1.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.6; }
+    display: none;
 }
 
 /* ==========================================
@@ -466,20 +504,16 @@ main {
    ========================================== */
 
 .past-day {
-    opacity: 0.5;
+    opacity: 0.65;
+    filter: grayscale(40%);
 }
 
 .past-day .day-number {
+    opacity: 0.8;
+}
+
+.past-day .note-content {
     opacity: 0.7;
-}
-
-.past-day .shift-indicator {
-    opacity: 0.6;
-    filter: grayscale(30%);
-}
-
-.past-day .note-indicator {
-    opacity: 0.5;
 }
 
 /* ==========================================
@@ -809,14 +843,19 @@ main {
     }
     
     .day-number {
-        font-size: 1.4rem;
-        width: 2.3rem;
-        height: 2.3rem;
+        font-size: 1.5rem;
+        width: 2.6rem;
+        height: 2.6rem;
     }
     
-    .shift-indicator {
-        font-size: 0.95rem;
-        padding: 0.3rem 0.6rem;
+    .note-content {
+        font-size: 0.65rem;
+        padding: 0.25rem;
+    }
+    
+    .shift-type-badge {
+        font-size: 0.65rem;
+        padding: 0.1rem 0.3rem;
     }
 }
 
@@ -831,14 +870,20 @@ main {
     }
     
     .day-number {
-        font-size: 1.35rem;
-        width: 2.2rem;
-        height: 2.2rem;
+        font-size: 1.4rem;
+        width: 2.4rem;
+        height: 2.4rem;
     }
     
-    .shift-indicator {
-        font-size: 0.95rem;
-        padding: 0.35rem 0.6rem;
+    .note-content {
+        font-size: 0.6rem;
+        padding: 0.2rem;
+        max-height: 2.4rem;
+    }
+    
+    .shift-type-badge {
+        font-size: 0.6rem;
+        padding: 0.1rem 0.25rem;
     }
     
     .turno-btn,
@@ -862,5 +907,9 @@ main {
     .turno-buttons-row-1,
     .turno-buttons-row-2 {
         gap: 0.3rem;
+    }
+    
+    .note-content {
+        font-size: 0.55rem;
     }
 }
