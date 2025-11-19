@@ -6,11 +6,13 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-const SHIFT_TYPES = {'M':{label:'Manana',color:'#00ff88'},'T':{label:'Tarde',color:'#ff9500'},'N':{label:'Noche',color:'#5e5ce6'},'L':{label:'Libre',color:'#64d2ff'}};
-const state = {currentDate:new Date(),selectedShiftType:null,shiftData:{},notes:{},cycles:[],calendars:{default:{name:'Mi Calendario',shifts:{},notes:{}}},activeCalendar:'default',isEditMode:false,isBuildingCycle:false,cycleBuilder:[],touchStartX:0,touchStartY:0};
+const DEFAULT_SHIFT_TYPES = {'M':{label:'Mañana',color:'#00ff88',hours:8},'T':{label:'Tarde',color:'#ff9500',hours:8},'N':{label:'Noche',color:'#5e5ce6',hours:8},'L':{label:'Libre',color:'#64d2ff',hours:0}};
+let SHIFT_TYPES = {...DEFAULT_SHIFT_TYPES};
+const state = {currentDate:new Date(),selectedShiftType:null,shiftData:{},notes:{},cycles:[],calendars:{default:{name:'Mi Calendario',shifts:{},notes:{}}},activeCalendar:'default',isEditMode:false,isBuildingCycle:false,cycleBuilder:[],touchStartX:0,touchStartY:0,customShifts:{}};
 
 function initCalendar() {
     loadActiveCalendar();
+    loadCustomShifts();
     renderCalendar();
     setupEvents();
     loadData();
@@ -21,6 +23,21 @@ function loadActiveCalendar() {
         state.shiftData = state.calendars[state.activeCalendar].shifts || {};
         state.notes = state.calendars[state.activeCalendar].notes || {};
     }
+}
+
+function loadCustomShifts() {
+    try {
+        const saved = localStorage.getItem('guardia_custom_shifts');
+        if(saved) {
+            state.customShifts = JSON.parse(saved);
+            SHIFT_TYPES = {...DEFAULT_SHIFT_TYPES, ...state.customShifts};
+        }
+    } catch(e) {}
+}
+
+function saveCustomShifts() {
+    localStorage.setItem('guardia_custom_shifts', JSON.stringify(state.customShifts));
+    SHIFT_TYPES = {...DEFAULT_SHIFT_TYPES, ...state.customShifts};
 }
 
 function renderCalendar() {
@@ -110,7 +127,7 @@ function renderNotesHistory() {
         html += '<div class="note-date">';
         html += '<div class="note-day-badge">' + dayNum + '</div>';
         html += '<div class="note-day-name">' + dayName + '</div>';
-        if(shift) {
+        if(shift && SHIFT_TYPES[shift]) {
             html += '<span class="note-shift-badge" style="background:' + SHIFT_TYPES[shift].color + ';color:#000">' + shift + '</span>';
         }
         html += '</div>';
@@ -180,14 +197,6 @@ function createCell(date, num, isCurr, today) {
 
 function formatDate(d) {
     return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
-}
-
-function getWeekNumber(d) {
-    const dd = new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate()));
-    const dayNum = dd.getUTCDay() || 7;
-    dd.setUTCDate(dd.getUTCDate() + 4 - dayNum);
-    const yearStart = new Date(Date.UTC(dd.getUTCFullYear(),0,1));
-    return Math.ceil((((dd - yearStart)/86400000)+1)/7);
 }
 
 function setShift(dateStr, type) {
@@ -342,6 +351,11 @@ function setupSidebar() {
         showCyclesManager();
     };
     
+    document.getElementById('manageCustomShiftsBtn').onclick = function() {
+        closeSb();
+        showCustomShiftsManager();
+    };
+    
     document.getElementById('calendarSelector').onchange = function() {
         state.activeCalendar = this.value;
         loadActiveCalendar();
@@ -392,6 +406,206 @@ function setupSidebar() {
         closeSb();
         showHelp();
     };
+}
+
+function showCustomShiftsManager() {
+    const m = document.createElement('div');
+    m.id = 'customShiftsModal';
+    m.className = 'modal-overlay visible';
+    
+    let html = '<div class="modal-content" style="max-width:600px;max-height:80vh;overflow-y:auto;">';
+    html += '<h3 class="text-xl font-bold mb-4"><i class="fas fa-palette"></i> Mis Turnos Personalizados</h3>';
+    
+    html += '<div class="mb-4 p-3 rounded-lg" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
+    html += '<h4 class="font-bold mb-2 text-sm">Turnos por Defecto (No editables)</h4>';
+    html += '<div class="flex gap-2 flex-wrap">';
+    Object.entries(DEFAULT_SHIFT_TYPES).forEach(function(e) {
+        html += '<span class="px-3 py-1 rounded text-sm font-bold" style="background:' + e[1].color + ';color:#000">';
+        html += e[0] + ' - ' + e[1].label + ' (' + e[1].hours + 'h)</span>';
+    });
+    html += '</div></div>';
+    
+    if(Object.keys(state.customShifts).length === 0) {
+        html += '<p class="text-center mb-4" style="color:var(--text-secondary)">No tienes turnos personalizados</p>';
+    } else {
+        html += '<div class="mb-4">';
+        html += '<h4 class="font-bold mb-2 text-sm">Tus Turnos Personalizados</h4>';
+        Object.entries(state.customShifts).forEach(function(e) {
+            html += '<div class="mb-2 p-2 rounded-lg flex justify-between items-center" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
+            html += '<span class="px-3 py-1 rounded font-bold" style="background:' + e[1].color + ';color:#000">';
+            html += e[0] + ' - ' + e[1].label + ' (' + e[1].hours + 'h)</span>';
+            html += '<div class="flex gap-1">';
+            html += '<button class="btn-icon btn-secondary" onclick="editCustomShift(\'' + e[0] + '\')"><i class="fas fa-edit"></i></button>';
+            html += '<button class="btn-icon btn-danger" onclick="deleteCustomShift(\'' + e[0] + '\')"><i class="fas fa-trash"></i></button>';
+            html += '</div></div>';
+        });
+        html += '</div>';
+    }
+    
+    html += '<button class="btn btn-primary w-full mt-3" onclick="createCustomShift()"><i class="fas fa-plus"></i> Crear Nuevo Turno</button>';
+    html += '<button class="btn btn-secondary w-full mt-2" onclick="closeModal(\'customShiftsModal\')">Cerrar</button>';
+    html += '</div>';
+    
+    m.innerHTML = html;
+    document.body.appendChild(m);
+    m.onclick = function(e) { if(e.target === m) closeModal('customShiftsModal'); };
+}
+
+function createCustomShift() {
+    closeModal('customShiftsModal');
+    const m = document.createElement('div');
+    m.id = 'createShiftModal';
+    m.className = 'modal-overlay visible';
+    
+    let html = '<div class="modal-content" style="max-width:500px">';
+    html += '<h3 class="text-lg font-bold mb-3"><i class="fas fa-plus"></i> Crear Turno Personalizado</h3>';
+    
+    html += '<label class="block mb-2 text-sm font-bold">Letra/Código (1-2 caracteres):</label>';
+    html += '<input type="text" id="shiftCode" class="form-input w-full mb-3" placeholder="Ej: G, F, M12" maxlength="3">';
+    
+    html += '<label class="block mb-2 text-sm font-bold">Nombre del turno:</label>';
+    html += '<input type="text" id="shiftLabel" class="form-input w-full mb-3" placeholder="Ej: Guardia 24h, Formación">';
+    
+    html += '<label class="block mb-2 text-sm font-bold">Duración (horas):</label>';
+    html += '<input type="number" id="shiftHours" class="form-input w-full mb-3" placeholder="Ej: 8, 12, 24" min="0" max="24" value="8">';
+    
+    html += '<label class="block mb-2 text-sm font-bold">Color:</label>';
+    html += '<div class="flex gap-2 mb-3 flex-wrap">';
+    const colors = ['#00ff88','#ff9500','#5e5ce6','#64d2ff','#f43f5e','#ec4899','#a855f7','#3b82f6','#10b981','#f59e0b','#ef4444','#84cc16'];
+    colors.forEach(function(c) {
+        html += '<button class="color-picker-btn" style="background:' + c + '" data-color="' + c + '" onclick="selectColor(\'' + c + '\')"></button>';
+    });
+    html += '</div>';
+    html += '<input type="color" id="shiftColor" class="form-input w-full mb-3" value="#00ff88">';
+    
+    html += '<div id="shiftPreview" class="p-3 rounded-lg mb-3 text-center" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
+    html += '<div class="text-xs mb-2" style="color:var(--text-secondary)">Vista previa:</div>';
+    html += '<span id="previewBadge" class="px-4 py-2 rounded font-bold text-lg" style="background:#00ff88;color:#000">?</span>';
+    html += '</div>';
+    
+    html += '<div class="flex gap-2">';
+    html += '<button class="btn btn-primary flex-1" onclick="saveNewCustomShift()"><i class="fas fa-save"></i> Guardar</button>';
+    html += '<button class="btn btn-secondary flex-1" onclick="closeModal(\'createShiftModal\');showCustomShiftsManager()">Cancelar</button>';
+    html += '</div></div>';
+    
+    m.innerHTML = html;
+    document.body.appendChild(m);
+    
+    document.getElementById('shiftCode').oninput = updateShiftPreview;
+    document.getElementById('shiftLabel').oninput = updateShiftPreview;
+    document.getElementById('shiftColor').oninput = updateShiftPreview;
+    updateShiftPreview();
+}
+
+function selectColor(color) {
+    document.getElementById('shiftColor').value = color;
+    updateShiftPreview();
+    document.querySelectorAll('.color-picker-btn').forEach(function(btn) {
+        if(btn.dataset.color === color) btn.classList.add('selected');
+        else btn.classList.remove('selected');
+    });
+}
+
+function updateShiftPreview() {
+    const code = document.getElementById('shiftCode').value.toUpperCase() || '?';
+    const color = document.getElementById('shiftColor').value;
+    const preview = document.getElementById('previewBadge');
+    if(preview) {
+        preview.textContent = code;
+        preview.style.background = color;
+    }
+}
+
+function saveNewCustomShift() {
+    const code = document.getElementById('shiftCode').value.toUpperCase().trim();
+    const label = document.getElementById('shiftLabel').value.trim();
+    const hours = parseInt(document.getElementById('shiftHours').value) || 8;
+    const color = document.getElementById('shiftColor').value;
+    
+    if(!code || code.length > 3) { alert('El código debe tener 1-3 caracteres'); return; }
+    if(!label) { alert('Pon un nombre al turno'); return; }
+    if(DEFAULT_SHIFT_TYPES[code]) { alert('Este código está reservado para turnos por defecto'); return; }
+    
+    state.customShifts[code] = {label: label, color: color, hours: hours};
+    saveCustomShifts();
+    setupShiftBtns();
+    closeModal('createShiftModal');
+    showCustomShiftsManager();
+    showToast('Turno creado: ' + code);
+}
+
+function editCustomShift(code) {
+    const shift = state.customShifts[code];
+    closeModal('customShiftsModal');
+    
+    const m = document.createElement('div');
+    m.id = 'editShiftModal';
+    m.className = 'modal-overlay visible';
+    
+    let html = '<div class="modal-content" style="max-width:500px">';
+    html += '<h3 class="text-lg font-bold mb-3"><i class="fas fa-edit"></i> Editar Turno: ' + code + '</h3>';
+    
+    html += '<label class="block mb-2 text-sm font-bold">Nombre del turno:</label>';
+    html += '<input type="text" id="shiftLabel" class="form-input w-full mb-3" value="' + shift.label + '">';
+    
+    html += '<label class="block mb-2 text-sm font-bold">Duración (horas):</label>';
+    html += '<input type="number" id="shiftHours" class="form-input w-full mb-3" min="0" max="24" value="' + shift.hours + '">';
+    
+    html += '<label class="block mb-2 text-sm font-bold">Color:</label>';
+    html += '<div class="flex gap-2 mb-3 flex-wrap">';
+    const colors = ['#00ff88','#ff9500','#5e5ce6','#64d2ff','#f43f5e','#ec4899','#a855f7','#3b82f6','#10b981','#f59e0b','#ef4444','#84cc16'];
+    colors.forEach(function(c) {
+        html += '<button class="color-picker-btn ' + (c===shift.color?'selected':'') + '" style="background:' + c + '" data-color="' + c + '" onclick="selectColor(\'' + c + '\')"></button>';
+    });
+    html += '</div>';
+    html += '<input type="color" id="shiftColor" class="form-input w-full mb-3" value="' + shift.color + '">';
+    
+    html += '<div id="shiftPreview" class="p-3 rounded-lg mb-3 text-center" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
+    html += '<span id="previewBadge" class="px-4 py-2 rounded font-bold text-lg" style="background:' + shift.color + ';color:#000">' + code + '</span>';
+    html += '</div>';
+    
+    html += '<div class="flex gap-2">';
+    html += '<button class="btn btn-primary flex-1" onclick="updateCustomShift(\'' + code + '\')"><i class="fas fa-save"></i> Guardar</button>';
+    html += '<button class="btn btn-secondary flex-1" onclick="closeModal(\'editShiftModal\');showCustomShiftsManager()">Cancelar</button>';
+    html += '</div></div>';
+    
+    m.innerHTML = html;
+    document.body.appendChild(m);
+    
+    document.getElementById('shiftLabel').oninput = function() {
+        document.getElementById('previewBadge').textContent = code;
+    };
+    document.getElementById('shiftColor').oninput = function() {
+        document.getElementById('previewBadge').style.background = this.value;
+    };
+}
+
+function updateCustomShift(code) {
+    const label = document.getElementById('shiftLabel').value.trim();
+    const hours = parseInt(document.getElementById('shiftHours').value) || 8;
+    const color = document.getElementById('shiftColor').value;
+    
+    if(!label) { alert('El nombre no puede estar vacío'); return; }
+    
+    state.customShifts[code] = {label: label, color: color, hours: hours};
+    saveCustomShifts();
+    setupShiftBtns();
+    renderCalendar();
+    closeModal('editShiftModal');
+    showCustomShiftsManager();
+    showToast('Turno actualizado');
+}
+
+function deleteCustomShift(code) {
+    if(confirm('¿Borrar el turno "' + code + '"? Los días con este turno quedarán sin turno asignado.')) {
+        delete state.customShifts[code];
+        saveCustomShifts();
+        setupShiftBtns();
+        renderCalendar();
+        closeModal('customShiftsModal');
+        showCustomShiftsManager();
+        showToast('Turno eliminado');
+    }
 }
 
 function updateTheme() {
@@ -470,7 +684,9 @@ function showCyclesManager() {
             html += '<button class="btn-icon btn-danger" onclick="deleteCycle(' + idx + ')"><i class="fas fa-trash"></i></button></div></div>';
             html += '<div class="flex gap-1 flex-wrap">';
             cycle.pattern.forEach(function(s) {
-                html += '<span class="px-2 py-1 rounded text-xs font-bold" style="background:' + SHIFT_TYPES[s].color + ';color:#000">' + s + '</span>';
+                if(SHIFT_TYPES[s]) {
+                    html += '<span class="px-2 py-1 rounded text-xs font-bold" style="background:' + SHIFT_TYPES[s].color + ';color:#000">' + s + '</span>';
+                }
             });
             html += '</div></div>';
         });
@@ -531,12 +747,14 @@ function updateCyclePreview() {
     
     display.innerHTML = '';
     state.cycleBuilder.forEach(function(s) {
-        const span = document.createElement('span');
-        span.className = 'px-2 py-1 rounded text-xs font-bold';
-        span.style.background = SHIFT_TYPES[s].color;
-        span.style.color = '#000';
-        span.textContent = s;
-        display.appendChild(span);
+        if(SHIFT_TYPES[s]) {
+            const span = document.createElement('span');
+            span.className = 'px-2 py-1 rounded text-xs font-bold';
+            span.style.background = SHIFT_TYPES[s].color;
+            span.style.color = '#000';
+            span.textContent = s;
+            display.appendChild(span);
+        }
     });
     
     preview.querySelector('.text-xs').textContent = 'Secuencia (' + state.cycleBuilder.length + ' dias):';
@@ -633,7 +851,9 @@ function applyCycle(idx) {
     html += '<div class="mb-3 p-3 rounded-lg" style="background:var(--bg-tertiary)"><div class="text-xs mb-2" style="color:var(--text-secondary)">Secuencia (' + cycle.pattern.length + ' dias):</div>';
     html += '<div class="flex gap-1 flex-wrap">';
     cycle.pattern.forEach(function(s) {
-        html += '<span class="px-2 py-1 rounded text-xs font-bold" style="background:' + SHIFT_TYPES[s].color + ';color:#000">' + s + '</span>';
+        if(SHIFT_TYPES[s]) {
+            html += '<span class="px-2 py-1 rounded text-xs font-bold" style="background:' + SHIFT_TYPES[s].color + ';color:#000">' + s + '</span>';
+        }
     });
     html += '</div></div>';
     html += '<label class="block mb-2 text-sm font-bold">Dia de inicio:</label>';
@@ -732,36 +952,24 @@ function showHelp() {
     
     html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-edit" style="color:var(--accent-primary)"></i> Editar Turnos</h4>';
     html += '<p class="text-sm mb-2">1. Pulsa el boton verde <i class="fas fa-edit"></i> (abajo derecha)</p>';
-    html += '<p class="text-sm mb-2">2. Selecciona un turno (M, T, N, L)</p>';
+    html += '<p class="text-sm mb-2">2. Selecciona un turno (M, T, N, L o personalizados)</p>';
     html += '<p class="text-sm">3. Haz click en los dias para asignar el turno</p></div>';
     
+    html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-palette" style="color:var(--accent-primary)"></i> Turnos Personalizados</h4>';
+    html += '<p class="text-sm mb-2">Crea tus propios turnos con letra, nombre, color y horas:</p>';
+    html += '<p class="text-sm mb-2">1. Menu → "Mis Turnos"</p>';
+    html += '<p class="text-sm mb-2">2. "Crear Nuevo Turno"</p>';
+    html += '<p class="text-sm">3. Define codigo (G, F, M12...), nombre, color y duracion</p></div>';
+    
     html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-sync" style="color:var(--accent-primary)"></i> Ciclos de Turno</h4>';
-    html += '<p class="text-sm mb-2">Para turnos que se repiten (ej: 6 trabajo, 6 libres):</p>';
+    html += '<p class="text-sm mb-2">Para turnos que se repiten:</p>';
     html += '<p class="text-sm mb-2">1. Menu → "Mis Ciclos"</p>';
     html += '<p class="text-sm mb-2">2. "Crear Nuevo Ciclo"</p>';
-    html += '<p class="text-sm mb-2">3. Construye tu secuencia: M M M M M M L L L L L L</p>';
-    html += '<p class="text-sm mb-2">4. Guardalo con un nombre</p>';
-    html += '<p class="text-sm">5. Aplica el ciclo seleccionando dia de inicio y duracion</p></div>';
+    html += '<p class="text-sm mb-2">3. Construye tu secuencia con cualquier turno</p>';
+    html += '<p class="text-sm">4. Aplica el ciclo con fecha de inicio y duracion</p></div>';
     
     html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-sticky-note" style="color:var(--accent-primary)"></i> Notas</h4>';
-    html += '<p class="text-sm">Haz doble-click en cualquier dia para anadir una nota o recordatorio</p></div>';
-    
-    html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-calendar-alt" style="color:var(--accent-primary)"></i> Varios Calendarios</h4>';
-    html += '<p class="text-sm mb-2">Puedes crear varios calendarios (ej: trabajo, personal, familia)</p>';
-    html += '<p class="text-sm">Menu → Seccion "Calendarios" → Escribe nombre → Crear</p></div>';
-    
-    html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-keyboard" style="color:var(--accent-primary)"></i> Atajos</h4>';
-    html += '<p class="text-sm mb-1">• Botones ← → para cambiar mes</p>';
-    html += '<p class="text-sm mb-1">• Boton <i class="fas fa-calendar-day"></i> para volver a hoy</p>';
-    html += '<p class="text-sm">• Menu hamburguesa ☰ para todas las opciones</p></div>';
-    
-    html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-palette" style="color:var(--accent-primary)"></i> Colores de Turnos</h4>';
-    html += '<div class="flex gap-2 flex-wrap">';
-    html += '<span class="px-3 py-1 rounded font-bold" style="background:#00ff88;color:#000">M - Manana</span>';
-    html += '<span class="px-3 py-1 rounded font-bold" style="background:#ff9500;color:#000">T - Tarde</span>';
-    html += '<span class="px-3 py-1 rounded font-bold" style="background:#5e5ce6;color:#fff">N - Noche</span>';
-    html += '<span class="px-3 py-1 rounded font-bold" style="background:#64d2ff;color:#000">L - Libre</span>';
-    html += '</div></div>';
+    html += '<p class="text-sm">Haz doble-click en cualquier dia para anadir una nota</p></div>';
     
     html += '<button class="btn btn-primary w-full" onclick="closeModal(\'helpModal\')">Entendido</button>';
     html += '</div>';
