@@ -197,6 +197,11 @@ body {
     color: var(--accent-text);
 }
 
+.btn-success-dark {
+    background-color: #10b981;
+    color: #ffffff;
+}
+
 .btn-secondary {
     background-color: var(--bg-tertiary);
     color: var(--text-primary);
