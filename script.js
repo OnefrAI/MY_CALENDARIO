@@ -17,22 +17,31 @@ function initCalendar() {
     setupEvents();
     loadData();
     
-    // Registrar Service Worker para notificaciones
+    // Registrar Service Worker para notificaciones (opcional - no bloquea si falla)
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js')
-            .then(() => console.log('[GUARDIA] Service Worker registrado'))
-            .catch((err) => console.error('[GUARDIA] Error al registrar SW:', err));
-        
-        // Pedir permisos de notificación
-        if ('Notification' in window && Notification.permission === 'default') {
-            setTimeout(() => {
-                Notification.requestPermission().then((permission) => {
-                    if (permission === 'granted') {
-                        showToast('¡Notificaciones activadas!');
-                    }
-                });
-            }, 2000); // Esperar 2 segundos antes de pedir permiso
-        }
+        // Intentar ruta relativa primero
+        const swPath = window.location.pathname.includes('calendario-del-GUARD-IA') 
+            ? '../../sw.js'  // Desde subcarpeta
+            : '/sw.js';       // Desde raíz
+            
+        navigator.serviceWorker.register(swPath)
+            .then(() => {
+                console.log('[GUARDIA] Service Worker registrado');
+                // Pedir permisos de notificación solo si SW funciona
+                if ('Notification' in window && Notification.permission === 'default') {
+                    setTimeout(() => {
+                        Notification.requestPermission().then((permission) => {
+                            if (permission === 'granted') {
+                                showToast('¡Notificaciones activadas!');
+                            }
+                        });
+                    }, 3000);
+                }
+            })
+            .catch((err) => {
+                console.warn('[GUARDIA] Service Worker no disponible (modo sin notificaciones):', err);
+                // Continuar sin notificaciones - no es crítico
+            });
     }
 }
 
@@ -1321,9 +1330,9 @@ function exportToICS() {
 // ============================================
 
 function scheduleNotification(dateStr, date, title, description, reminderType, reminderTime) {
-    // Verificar permiso de notificaciones
+    // Verificar si las notificaciones están disponibles
     if (!('Notification' in window)) {
-        showToast('Tu navegador no soporta notificaciones');
+        console.warn('Notificaciones no soportadas');
         return;
     }
     
@@ -1332,95 +1341,112 @@ function scheduleNotification(dateStr, date, title, description, reminderType, r
             if (permission === 'granted') {
                 scheduleNotification(dateStr, date, title, description, reminderType, reminderTime);
             } else {
-                showToast('Necesitas activar las notificaciones');
+                console.warn('Permisos de notificación denegados');
             }
         });
         return;
     }
     
-    // Calcular momento de la notificación
-    const targetDate = new Date(date);
-    const [hours, minutes] = reminderTime.split(':');
-    targetDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
-    
-    // Ajustar según tipo de recordatorio
-    switch(reminderType) {
-        case '1day':
-            targetDate.setDate(targetDate.getDate() - 1);
-            break;
-        case '2days':
-            targetDate.setDate(targetDate.getDate() - 2);
-            break;
-        case '1week':
-            targetDate.setDate(targetDate.getDate() - 7);
-            break;
+    try {
+        // Calcular momento de la notificación
+        const targetDate = new Date(date);
+        const [hours, minutes] = reminderTime.split(':');
+        targetDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+        
+        // Ajustar según tipo de recordatorio
+        switch(reminderType) {
+            case '1day':
+                targetDate.setDate(targetDate.getDate() - 1);
+                break;
+            case '2days':
+                targetDate.setDate(targetDate.getDate() - 2);
+                break;
+            case '1week':
+                targetDate.setDate(targetDate.getDate() - 7);
+                break;
+        }
+        
+        const triggerTime = targetDate.getTime();
+        const now = Date.now();
+        
+        if (triggerTime <= now) {
+            showToast('La hora del recordatorio ya pasó');
+            return;
+        }
+        
+        // Guardar en IndexedDB
+        const notificationData = {
+            id: 'notif-' + dateStr,
+            dateStr: dateStr,
+            title: title || 'Recordatorio',
+            description: description || '',
+            triggerTime: triggerTime,
+            sent: false,
+            url: window.location.href
+        };
+        
+        saveNotificationToIndexedDB(notificationData);
+        
+        // Avisar al Service Worker si está disponible
+        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({
+                type: 'CHECK_NOTIFICATIONS'
+            });
+        }
+        
+        showToast('¡Recordatorio programado!');
+    } catch(error) {
+        console.error('Error programando notificación:', error);
+        showToast('Error al programar recordatorio');
     }
-    
-    const triggerTime = targetDate.getTime();
-    const now = Date.now();
-    
-    if (triggerTime <= now) {
-        showToast('La hora del recordatorio ya pasó');
-        return;
-    }
-    
-    // Guardar en IndexedDB
-    const notificationData = {
-        id: 'notif-' + dateStr,
-        dateStr: dateStr,
-        title: title || 'Recordatorio',
-        description: description || '',
-        triggerTime: triggerTime,
-        sent: false,
-        url: window.location.href
-    };
-    
-    saveNotificationToIndexedDB(notificationData);
-    
-    // Avisar al Service Worker
-    if (navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({
-            type: 'CHECK_NOTIFICATIONS'
-        });
-    }
-    
-    showToast('¡Recordatorio programado!');
 }
 
 function cancelNotification(dateStr) {
-    const notifId = 'notif-' + dateStr;
-    
-    const request = indexedDB.open('GuardiaNotifications', 1);
-    
-    request.onsuccess = (event) => {
-        const db = event.target.result;
+    try {
+        const notifId = 'notif-' + dateStr;
         
-        if (!db.objectStoreNames.contains('notifications')) return;
+        const request = indexedDB.open('GuardiaNotifications', 1);
         
-        const transaction = db.transaction(['notifications'], 'readwrite');
-        const store = transaction.objectStore('notifications');
-        store.delete(notifId);
-    };
+        request.onsuccess = (event) => {
+            const db = event.target.result;
+            
+            if (!db.objectStoreNames.contains('notifications')) return;
+            
+            const transaction = db.transaction(['notifications'], 'readwrite');
+            const store = transaction.objectStore('notifications');
+            store.delete(notifId);
+        };
+        
+        request.onerror = () => {
+            console.warn('Error cancelando notificación');
+        };
+    } catch(error) {
+        console.warn('Error en cancelNotification:', error);
+    }
 }
 
 function saveNotificationToIndexedDB(notificationData) {
-    const request = indexedDB.open('GuardiaNotifications', 1);
-    
-    request.onupgradeneeded = (event) => {
-        const db = event.target.result;
-        if (!db.objectStoreNames.contains('notifications')) {
-            db.createObjectStore('notifications', { keyPath: 'id' });
-        }
-    };
-    
-    request.onsuccess = (event) => {
-        const db = event.target.result;
-        const transaction = db.transaction(['notifications'], 'readwrite');
-        const store = transaction.objectStore('notifications');
-        store.put(notificationData);
-    };
-    
-    request.onerror = () => {
-        console.error('Error guardando notificación');
-    };
+    try {
+        const request = indexedDB.open('GuardiaNotifications', 1);
+        
+        request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains('notifications')) {
+                db.createObjectStore('notifications', { keyPath: 'id' });
+            }
+        };
+        
+        request.onsuccess = (event) => {
+            const db = event.target.result;
+            const transaction = db.transaction(['notifications'], 'readwrite');
+            const store = transaction.objectStore('notifications');
+            store.put(notificationData);
+        };
+        
+        request.onerror = () => {
+            console.error('Error guardando notificación en IndexedDB');
+        };
+    } catch(error) {
+        console.error('Error en saveNotificationToIndexedDB:', error);
+    }
 }
