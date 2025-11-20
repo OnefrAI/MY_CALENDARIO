@@ -16,6 +16,24 @@ function initCalendar() {
     renderCalendar();
     setupEvents();
     loadData();
+    
+    // Registrar Service Worker para notificaciones
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js')
+            .then(() => console.log('[GUARDIA] Service Worker registrado'))
+            .catch((err) => console.error('[GUARDIA] Error al registrar SW:', err));
+        
+        // Pedir permisos de notificación
+        if ('Notification' in window && Notification.permission === 'default') {
+            setTimeout(() => {
+                Notification.requestPermission().then((permission) => {
+                    if (permission === 'granted') {
+                        showToast('¡Notificaciones activadas!');
+                    }
+                });
+            }, 2000); // Esperar 2 segundos antes de pedir permiso
+        }
+    }
 }
 
 function loadActiveCalendar() {
@@ -103,7 +121,23 @@ function renderNotesHistory() {
         const note = entry[1];
         const d = new Date(dateStr);
         if(d.getFullYear() === year && d.getMonth() === month) {
-            monthNotes.push({date: d, dateStr: dateStr, note: note});
+            let title = '';
+            let description = '';
+            
+            if(typeof note === 'object') {
+                title = note.title || '';
+                description = note.description || note.text || '';
+            } else if(typeof note === 'string') {
+                title = note;
+                description = note;
+            }
+            
+            monthNotes.push({
+                date: d, 
+                dateStr: dateStr, 
+                title: title,
+                description: description
+            });
         }
     });
     
@@ -131,7 +165,12 @@ function renderNotesHistory() {
             html += '<span class="note-shift-badge" style="background:' + SHIFT_TYPES[shift].color + ';color:#000">' + shift + '</span>';
         }
         html += '</div>';
-        html += '<div class="note-text">' + item.note + '</div>';
+        html += '<div class="note-text-container">';
+        html += '<div class="note-title">' + (item.title || 'Sin título') + '</div>';
+        if(item.description && item.description !== item.title) {
+            html += '<div class="note-preview">' + item.description.substring(0, 80) + (item.description.length > 80 ? '...' : '') + '</div>';
+        }
+        html += '</div>';
         html += '</div>';
     });
     
@@ -172,11 +211,24 @@ function createCell(date, num, isCurr, today) {
     dayDiv.textContent = num;
     cell.appendChild(dayDiv);
     
-    // Mostrar nota si existe
+    // Mostrar título de nota si existe
     if(state.notes[dateStr]) {
         const noteDiv = document.createElement('div');
         noteDiv.className = 'note-content';
-        noteDiv.textContent = state.notes[dateStr];
+        
+        // Si la nota tiene estructura nueva (title/description)
+        if(typeof state.notes[dateStr] === 'object' && state.notes[dateStr].title) {
+            noteDiv.textContent = state.notes[dateStr].title;
+        } 
+        // Si es nota antigua (solo texto)
+        else if(typeof state.notes[dateStr] === 'string') {
+            noteDiv.textContent = state.notes[dateStr];
+        }
+        // Si tiene la propiedad text
+        else if(state.notes[dateStr].text) {
+            noteDiv.textContent = state.notes[dateStr].text;
+        }
+        
         cell.appendChild(noteDiv);
     }
     
@@ -209,29 +261,101 @@ function setShift(dateStr, type) {
 }
 
 function showNote(dateStr, date) {
-    const ex = state.notes[dateStr] || '';
+    const existing = state.notes[dateStr];
+    const existingTitle = existing ? (existing.title || '') : '';
+    const existingDesc = existing ? (existing.description || existing.text || existing || '') : '';
+    const existingReminder = existing ? (existing.reminder || 'none') : 'none';
+    const existingReminderTime = existing ? (existing.reminderTime || '09:00') : '09:00';
+    
     const m = document.createElement('div');
     m.className = 'modal-overlay visible';
-    m.innerHTML = '<div class="modal-content"><h3 class="text-lg font-bold mb-3">Nota ' + date.getDate() + '/' + (date.getMonth()+1) + '</h3><textarea id="noteText" class="form-input w-full mb-3" rows="4">'+ex+'</textarea><div class="flex gap-2"><button id="saveNote" class="btn btn-primary flex-1">Guardar</button><button id="delNote" class="btn btn-danger flex-1">Borrar</button><button id="cancelNote" class="btn btn-secondary flex-1">Cancelar</button></div></div>';
+    m.innerHTML = '<div class="modal-content" style="max-width:500px">' +
+        '<h3 class="text-lg font-bold mb-3">Nota ' + date.getDate() + '/' + (date.getMonth()+1) + '/' + date.getFullYear() + '</h3>' +
+        
+        '<label class="block mb-2 text-sm font-bold">Título (visible en calendario):</label>' +
+        '<input type="text" id="noteTitle" class="form-input w-full mb-3" placeholder="Ej: Reunión, Cita médica..." value="' + existingTitle.replace(/"/g, '&quot;') + '" maxlength="50">' +
+        
+        '<label class="block mb-2 text-sm font-bold">Descripción detallada:</label>' +
+        '<textarea id="noteDescription" class="form-input w-full mb-3" rows="4" placeholder="Detalles adicionales, horarios, ubicación...">' + existingDesc.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</textarea>' +
+        
+        '<div class="mb-3 p-3 rounded-lg" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">' +
+        '<label class="block mb-2 text-sm font-bold flex items-center gap-2"><i class="fas fa-bell" style="color:var(--accent-primary)"></i> Recordatorio</label>' +
+        '<select id="reminderType" class="form-select w-full mb-2">' +
+        '<option value="none" ' + (existingReminder === 'none' ? 'selected' : '') + '>Sin recordatorio</option>' +
+        '<option value="sameday" ' + (existingReminder === 'sameday' ? 'selected' : '') + '>El mismo día a las:</option>' +
+        '<option value="1day" ' + (existingReminder === '1day' ? 'selected' : '') + '>1 día antes a las:</option>' +
+        '<option value="2days" ' + (existingReminder === '2days' ? 'selected' : '') + '>2 días antes a las:</option>' +
+        '<option value="1week" ' + (existingReminder === '1week' ? 'selected' : '') + '>1 semana antes a las:</option>' +
+        '</select>' +
+        '<input type="time" id="reminderTime" class="form-input w-full" value="' + existingReminderTime + '" ' + (existingReminder === 'none' ? 'disabled' : '') + '>' +
+        '<p class="text-xs mt-2" style="color:var(--text-secondary)"><i class="fas fa-info-circle"></i> Las notificaciones funcionan aunque cierres el navegador (Android/PC)</p>' +
+        '</div>' +
+        
+        '<div class="flex gap-2">' +
+        '<button id="saveNote" class="btn btn-primary flex-1"><i class="fas fa-save"></i> Guardar</button>' +
+        '<button id="delNote" class="btn btn-danger flex-1"><i class="fas fa-trash"></i> Borrar</button>' +
+        '<button id="cancelNote" class="btn btn-secondary flex-1"><i class="fas fa-times"></i> Cancelar</button>' +
+        '</div></div>';
     document.body.appendChild(m);
     
+    // Habilitar/deshabilitar campo de hora según selector
+    document.getElementById('reminderType').onchange = function() {
+        document.getElementById('reminderTime').disabled = this.value === 'none';
+    };
+    
     document.getElementById('saveNote').onclick = function() {
-        const txt = document.getElementById('noteText').value.trim();
-        if(txt) state.notes[dateStr]=txt; else delete state.notes[dateStr];
+        const title = document.getElementById('noteTitle').value.trim();
+        const description = document.getElementById('noteDescription').value.trim();
+        const reminderType = document.getElementById('reminderType').value;
+        const reminderTime = document.getElementById('reminderTime').value;
+        
+        if(title || description) {
+            state.notes[dateStr] = {
+                title: title,
+                description: description,
+                text: title, // Para compatibilidad
+                reminder: reminderType,
+                reminderTime: reminderTime
+            };
+            
+            // Programar notificación si se configuró
+            if(reminderType !== 'none') {
+                scheduleNotification(dateStr, date, title, description, reminderType, reminderTime);
+            } else {
+                // Cancelar notificación si existía
+                cancelNotification(dateStr);
+            }
+        } else {
+            delete state.notes[dateStr];
+            cancelNotification(dateStr);
+        }
+        
         saveData();
         renderCalendar();
         document.body.removeChild(m);
     };
+    
     document.getElementById('delNote').onclick = function() {
-        delete state.notes[dateStr];
-        saveData();
-        renderCalendar();
-        document.body.removeChild(m);
+        if(state.notes[dateStr]) {
+            if(confirm('¿Seguro que quieres borrar esta nota?')) {
+                delete state.notes[dateStr];
+                cancelNotification(dateStr);
+                saveData();
+                renderCalendar();
+                document.body.removeChild(m);
+            }
+        } else {
+            document.body.removeChild(m);
+        }
     };
+    
     document.getElementById('cancelNote').onclick = function() {
         document.body.removeChild(m);
     };
-    m.onclick = function(e) { if(e.target===m) document.body.removeChild(m); };
+    
+    m.onclick = function(e) { 
+        if(e.target === m) document.body.removeChild(m); 
+    };
 }
 
 function saveData() {
@@ -357,6 +481,22 @@ function setupSidebar() {
     document.getElementById('manageCustomShiftsBtn').onclick = function() {
         closeSb();
         showCustomShiftsManager();
+    };
+    
+    // NUEVOS BOTONES PRO
+    document.getElementById('btnStats').onclick = function() {
+        closeSb();
+        showStatistics();
+    };
+    
+    document.getElementById('btnExportImg').onclick = function() {
+        closeSb();
+        exportAsImage();
+    };
+    
+    document.getElementById('btnExportIcs').onclick = function() {
+        closeSb();
+        exportToICS();
     };
     
     document.getElementById('calendarSelector').onchange = function() {
@@ -980,4 +1120,307 @@ function showHelp() {
     m.innerHTML = html;
     document.body.appendChild(m);
     m.onclick = function(e) { if(e.target === m) closeModal('helpModal'); };
+}
+
+// ============================================
+// FUNCIONES PRO - NUEVAS
+// ============================================
+
+function showStatistics() {
+    const year = state.currentDate.getFullYear();
+    const month = state.currentDate.getMonth();
+    
+    // Contar turnos del mes actual
+    const stats = {};
+    Object.keys(SHIFT_TYPES).forEach(function(key) {
+        stats[key] = 0;
+    });
+    
+    Object.entries(state.shiftData).forEach(function(entry) {
+        const dateStr = entry[0];
+        const shift = entry[1];
+        const d = new Date(dateStr);
+        if(d.getFullYear() === year && d.getMonth() === month) {
+            if(stats[shift] !== undefined) {
+                stats[shift]++;
+            }
+        }
+    });
+    
+    // Calcular horas totales
+    let totalHours = 0;
+    Object.entries(stats).forEach(function(entry) {
+        const shiftType = entry[0];
+        const count = entry[1];
+        if(SHIFT_TYPES[shiftType]) {
+            totalHours += count * SHIFT_TYPES[shiftType].hours;
+        }
+    });
+    
+    const m = document.createElement('div');
+    m.id = 'statsModal';
+    m.className = 'modal-overlay visible';
+    
+    let html = '<div class="modal-content" style="max-width:600px;max-height:85vh;overflow-y:auto">';
+    html += '<h3 class="text-xl font-bold mb-4"><i class="fas fa-chart-pie"></i> Estadísticas del Mes</h3>';
+    html += '<p class="text-sm mb-4" style="color:var(--text-secondary)">' + MONTH_NAMES[month] + ' ' + year + '</p>';
+    
+    html += '<div class="mb-4 p-3 rounded-lg" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
+    html += '<div class="text-2xl font-bold text-center mb-2">' + totalHours + ' horas</div>';
+    html += '<div class="text-xs text-center" style="color:var(--text-secondary)">Total trabajadas este mes</div>';
+    html += '</div>';
+    
+    html += '<div class="mb-4">';
+    Object.entries(stats).forEach(function(entry) {
+        const shiftType = entry[0];
+        const count = entry[1];
+        if(SHIFT_TYPES[shiftType] && count > 0) {
+            const hours = count * SHIFT_TYPES[shiftType].hours;
+            html += '<div class="flex items-center justify-between mb-2 p-2 rounded" style="background:var(--bg-tertiary)">';
+            html += '<div class="flex items-center gap-2">';
+            html += '<span class="px-2 py-1 rounded font-bold text-sm" style="background:' + SHIFT_TYPES[shiftType].color + ';color:#000">' + shiftType + '</span>';
+            html += '<span class="text-sm">' + SHIFT_TYPES[shiftType].label + '</span>';
+            html += '</div>';
+            html += '<div class="text-right">';
+            html += '<div class="font-bold">' + count + ' días</div>';
+            html += '<div class="text-xs" style="color:var(--text-secondary)">' + hours + ' h</div>';
+            html += '</div>';
+            html += '</div>';
+        }
+    });
+    html += '</div>';
+    
+    html += '<canvas id="statsChart" width="400" height="300" class="mb-4"></canvas>';
+    
+    html += '<button class="btn btn-secondary w-full" onclick="closeModal(\'statsModal\')">Cerrar</button>';
+    html += '</div>';
+    
+    m.innerHTML = html;
+    document.body.appendChild(m);
+    
+    // Crear gráfico con Chart.js
+    const ctx = document.getElementById('statsChart').getContext('2d');
+    const labels = [];
+    const data = [];
+    const colors = [];
+    
+    Object.entries(stats).forEach(function(entry) {
+        const shiftType = entry[0];
+        const count = entry[1];
+        if(SHIFT_TYPES[shiftType] && count > 0) {
+            labels.push(SHIFT_TYPES[shiftType].label);
+            data.push(count);
+            colors.push(SHIFT_TYPES[shiftType].color);
+        }
+    });
+    
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: data,
+                backgroundColor: colors,
+                borderWidth: 2,
+                borderColor: '#1a1a1a'
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: {
+                        color: '#ffffff',
+                        font: {
+                            size: 12
+                        }
+                    }
+                }
+            }
+        }
+    });
+    
+    m.onclick = function(e) { if(e.target === m) closeModal('statsModal'); };
+}
+
+function exportAsImage() {
+    showToast('Generando imagen...');
+    
+    const captureArea = document.getElementById('mainCaptureArea');
+    
+    html2canvas(captureArea, {
+        backgroundColor: '#0a0a0a',
+        scale: 2,
+        logging: false,
+        useCORS: true
+    }).then(function(canvas) {
+        const link = document.createElement('a');
+        const year = state.currentDate.getFullYear();
+        const month = String(state.currentDate.getMonth() + 1).padStart(2, '0');
+        link.download = 'calendario-guardia-' + year + '-' + month + '.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        showToast('¡Imagen descargada!');
+    }).catch(function(error) {
+        console.error('Error al generar imagen:', error);
+        showToast('Error al generar imagen');
+    });
+}
+
+function exportToICS() {
+    let icsContent = 'BEGIN:VCALENDAR\n';
+    icsContent += 'VERSION:2.0\n';
+    icsContent += 'PRODID:-//GUARD-IA//Calendario de Turnos//ES\n';
+    icsContent += 'CALSCALE:GREGORIAN\n';
+    icsContent += 'METHOD:PUBLISH\n';
+    icsContent += 'X-WR-CALNAME:Turnos GUARD-IA\n';
+    icsContent += 'X-WR-TIMEZONE:Europe/Madrid\n';
+    
+    Object.entries(state.shiftData).forEach(function(entry) {
+        const dateStr = entry[0];
+        const shift = entry[1];
+        
+        if(SHIFT_TYPES[shift]) {
+            const date = new Date(dateStr + 'T00:00:00');
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const dateFormatted = year + month + day;
+            
+            icsContent += 'BEGIN:VEVENT\n';
+            icsContent += 'UID:' + dateStr + '-' + shift + '@guardia-calendar\n';
+            icsContent += 'DTSTAMP:' + dateFormatted + 'T000000Z\n';
+            icsContent += 'DTSTART;VALUE=DATE:' + dateFormatted + '\n';
+            icsContent += 'DTEND;VALUE=DATE:' + dateFormatted + '\n';
+            icsContent += 'SUMMARY:Turno ' + SHIFT_TYPES[shift].label + ' (' + shift + ')\n';
+            icsContent += 'DESCRIPTION:' + SHIFT_TYPES[shift].label + ' - ' + SHIFT_TYPES[shift].hours + ' horas\n';
+            
+            if(state.notes[dateStr]) {
+                icsContent += 'DESCRIPTION:' + state.notes[dateStr] + '\n';
+            }
+            
+            icsContent += 'STATUS:CONFIRMED\n';
+            icsContent += 'END:VEVENT\n';
+        }
+    });
+    
+    icsContent += 'END:VCALENDAR';
+    
+    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'turnos-guardia.ics';
+    link.click();
+    
+    showToast('Archivo .ICS descargado');
+}
+
+// ============================================
+// FUNCIONES DE NOTIFICACIONES
+// ============================================
+
+function scheduleNotification(dateStr, date, title, description, reminderType, reminderTime) {
+    // Verificar permiso de notificaciones
+    if (!('Notification' in window)) {
+        showToast('Tu navegador no soporta notificaciones');
+        return;
+    }
+    
+    if (Notification.permission !== 'granted') {
+        Notification.requestPermission().then((permission) => {
+            if (permission === 'granted') {
+                scheduleNotification(dateStr, date, title, description, reminderType, reminderTime);
+            } else {
+                showToast('Necesitas activar las notificaciones');
+            }
+        });
+        return;
+    }
+    
+    // Calcular momento de la notificación
+    const targetDate = new Date(date);
+    const [hours, minutes] = reminderTime.split(':');
+    targetDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+    
+    // Ajustar según tipo de recordatorio
+    switch(reminderType) {
+        case '1day':
+            targetDate.setDate(targetDate.getDate() - 1);
+            break;
+        case '2days':
+            targetDate.setDate(targetDate.getDate() - 2);
+            break;
+        case '1week':
+            targetDate.setDate(targetDate.getDate() - 7);
+            break;
+    }
+    
+    const triggerTime = targetDate.getTime();
+    const now = Date.now();
+    
+    if (triggerTime <= now) {
+        showToast('La hora del recordatorio ya pasó');
+        return;
+    }
+    
+    // Guardar en IndexedDB
+    const notificationData = {
+        id: 'notif-' + dateStr,
+        dateStr: dateStr,
+        title: title || 'Recordatorio',
+        description: description || '',
+        triggerTime: triggerTime,
+        sent: false,
+        url: window.location.href
+    };
+    
+    saveNotificationToIndexedDB(notificationData);
+    
+    // Avisar al Service Worker
+    if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage({
+            type: 'CHECK_NOTIFICATIONS'
+        });
+    }
+    
+    showToast('¡Recordatorio programado!');
+}
+
+function cancelNotification(dateStr) {
+    const notifId = 'notif-' + dateStr;
+    
+    const request = indexedDB.open('GuardiaNotifications', 1);
+    
+    request.onsuccess = (event) => {
+        const db = event.target.result;
+        
+        if (!db.objectStoreNames.contains('notifications')) return;
+        
+        const transaction = db.transaction(['notifications'], 'readwrite');
+        const store = transaction.objectStore('notifications');
+        store.delete(notifId);
+    };
+}
+
+function saveNotificationToIndexedDB(notificationData) {
+    const request = indexedDB.open('GuardiaNotifications', 1);
+    
+    request.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        if (!db.objectStoreNames.contains('notifications')) {
+            db.createObjectStore('notifications', { keyPath: 'id' });
+        }
+    };
+    
+    request.onsuccess = (event) => {
+        const db = event.target.result;
+        const transaction = db.transaction(['notifications'], 'readwrite');
+        const store = transaction.objectStore('notifications');
+        store.put(notificationData);
+    };
+    
+    request.onerror = () => {
+        console.error('Error guardando notificación');
+    };
 }
