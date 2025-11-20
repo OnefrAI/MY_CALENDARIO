@@ -403,6 +403,16 @@ function setupEvents() {
         renderCalendar();
     };
     
+    // Botón de tema en el header
+    const themeBtn = document.getElementById('themeToggleBtn');
+    updateThemeIcon();
+    themeBtn.onclick = function() {
+        document.body.classList.toggle('light-mode');
+        const isLight = document.body.classList.contains('light-mode');
+        localStorage.setItem('theme', isLight?'light':'dark');
+        updateThemeIcon();
+    };
+    
     const fab = document.getElementById('fabEditBtn');
     const panel = document.getElementById('floatingEditPanel');
     fab.classList.remove('hidden');
@@ -433,6 +443,12 @@ function setupEvents() {
     setupShiftBtns();
     setupSidebar();
     setupSwipeGestures();
+}
+
+function updateThemeIcon() {
+    const btn = document.getElementById('themeToggleBtn');
+    const isLight = document.body.classList.contains('light-mode');
+    btn.innerHTML = isLight ? '<i class="fas fa-moon"></i>' : '<i class="fas fa-sun"></i>';
 }
 
 function setupShiftBtns() {
@@ -473,15 +489,6 @@ function setupSidebar() {
     close.onclick = closeSb;
     ov.onclick = closeSb;
     
-    const theme = document.getElementById('themeToggleBtn');
-    updateTheme();
-    theme.onclick = function() {
-        document.body.classList.toggle('light-mode');
-        const isLight = document.body.classList.contains('light-mode');
-        localStorage.setItem('theme', isLight?'light':'dark');
-        updateTheme();
-    };
-    
     document.getElementById('manageCyclesBtn').onclick = function() {
         closeSb();
         showCyclesManager();
@@ -498,14 +505,14 @@ function setupSidebar() {
         showStatistics();
     };
     
-    document.getElementById('btnExportImg').onclick = function() {
-        closeSb();
-        exportAsImage();
-    };
-    
     document.getElementById('btnExportIcs').onclick = function() {
         closeSb();
         exportToICS();
+    };
+    
+    document.getElementById('btnImportIcs').onclick = function() {
+        closeSb();
+        importFromICS();
     };
     
     document.getElementById('calendarSelector').onchange = function() {
@@ -760,12 +767,101 @@ function deleteCustomShift(code) {
     }
 }
 
-function updateTheme() {
-    const btn = document.getElementById('themeToggleBtn');
-    const isLight = document.body.classList.contains('light-mode');
-    btn.innerHTML = isLight ? '<i class="fas fa-moon"></i> Modo Oscuro' : '<i class="fas fa-sun"></i> Modo Claro';
+function updateCalendarSelector() {
+    const sel = document.getElementById('calendarSelector');
+    sel.innerHTML = '';
+    Object.entries(state.calendars).forEach(function(e) {
+        const opt = document.createElement('option');
+        opt.value = e[0];
+        opt.textContent = e[1].name;
+        if(e[0] === state.activeCalendar) opt.selected = true;
+        sel.appendChild(opt);
+    });
 }
 
+function importFromICS() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.ics';
+    
+    input.onchange = function(e) {
+        const file = e.target.files[0];
+        if(!file) return;
+        
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            try {
+                const icsContent = event.target.result;
+                parseICSAndImport(icsContent);
+            } catch(error) {
+                console.error('Error leyendo archivo ICS:', error);
+                showToast('Error al leer el archivo');
+            }
+        };
+        reader.readAsText(file);
+    };
+    
+    input.click();
+}
+
+function parseICSAndImport(icsContent) {
+    // Parser básico de ICS
+    const lines = icsContent.split('\n');
+    let eventsImported = 0;
+    let currentEvent = null;
+    
+    lines.forEach(function(line) {
+        line = line.trim();
+        
+        if(line === 'BEGIN:VEVENT') {
+            currentEvent = {};
+        } else if(line === 'END:VEVENT' && currentEvent) {
+            // Procesar evento
+            if(currentEvent.date && currentEvent.summary) {
+                // Extraer turno si está en formato "Turno X (Y)"
+                const match = currentEvent.summary.match(/Turno .* \(([MTNL]|[A-Z0-9]+)\)/);
+                if(match) {
+                    const shiftCode = match[1];
+                    if(SHIFT_TYPES[shiftCode]) {
+                        state.shiftData[currentEvent.date] = shiftCode;
+                        eventsImported++;
+                    }
+                }
+                
+                // Importar descripción como nota si existe
+                if(currentEvent.description) {
+                    state.notes[currentEvent.date] = {
+                        title: currentEvent.summary,
+                        description: currentEvent.description,
+                        text: currentEvent.summary
+                    };
+                }
+            }
+            currentEvent = null;
+        } else if(currentEvent) {
+            if(line.startsWith('DTSTART')) {
+                const dateMatch = line.match(/(\d{4})(\d{2})(\d{2})/);
+                if(dateMatch) {
+                    currentEvent.date = dateMatch[1] + '-' + dateMatch[2] + '-' + dateMatch[3];
+                }
+            } else if(line.startsWith('SUMMARY:')) {
+                currentEvent.summary = line.substring(8);
+            } else if(line.startsWith('DESCRIPTION:')) {
+                currentEvent.description = line.substring(12);
+            }
+        }
+    });
+    
+    if(eventsImported > 0) {
+        saveData();
+        renderCalendar();
+        showToast('¡' + eventsImported + ' eventos importados!');
+    } else {
+        showToast('No se encontraron eventos compatibles');
+    }
+}
+
+// Cargar tema guardado
 const saved = localStorage.getItem('theme');
 if(saved==='light') document.body.classList.add('light-mode');
 
