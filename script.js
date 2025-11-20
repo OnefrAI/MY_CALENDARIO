@@ -805,9 +805,9 @@ function importFromICS() {
 }
 
 function parseICSAndImport(icsContent) {
-    // Parser básico de ICS
     const lines = icsContent.split('\n');
     let eventsImported = 0;
+    let notesImported = 0;
     let currentEvent = null;
     
     lines.forEach(function(line) {
@@ -818,46 +818,76 @@ function parseICSAndImport(icsContent) {
         } else if(line === 'END:VEVENT' && currentEvent) {
             // Procesar evento
             if(currentEvent.date && currentEvent.summary) {
-                // Extraer turno si está en formato "Turno X (Y)"
-                const match = currentEvent.summary.match(/Turno .* \(([MTNL]|[A-Z0-9]+)\)/);
-                if(match) {
-                    const shiftCode = match[1];
-                    if(SHIFT_TYPES[shiftCode]) {
-                        state.shiftData[currentEvent.date] = shiftCode;
-                        eventsImported++;
+                const summary = currentEvent.summary.toUpperCase();
+                let shiftCode = null;
+                
+                // Detectar tipo de turno por palabras clave
+                if(summary.includes('MAÑANA') || summary.includes('MANANA')) {
+                    shiftCode = 'M';
+                } else if(summary.includes('TARDE')) {
+                    shiftCode = 'T';
+                } else if(summary.includes('NOCHE')) {
+                    shiftCode = 'N';
+                } else if(summary.includes('LIBRE') || summary.includes('DESCANSO')) {
+                    shiftCode = 'L';
+                } else {
+                    // Intentar extraer turno en formato "Turno X (Y)"
+                    const match = currentEvent.summary.match(/Turno .* \(([MTNL]|[A-Z0-9]+)\)/i);
+                    if(match) {
+                        shiftCode = match[1].toUpperCase();
                     }
                 }
                 
-                // Importar descripción como nota si existe
-                if(currentEvent.description) {
+                // Si detectamos un turno válido, asignarlo
+                if(shiftCode && SHIFT_TYPES[shiftCode]) {
+                    state.shiftData[currentEvent.date] = shiftCode;
+                    eventsImported++;
+                }
+                
+                // Importar como nota si tiene descripción O si no es turno
+                if(currentEvent.description || !shiftCode) {
+                    const title = currentEvent.summary.substring(0, 50);
+                    const description = currentEvent.description || '';
+                    
                     state.notes[currentEvent.date] = {
-                        title: currentEvent.summary,
-                        description: currentEvent.description,
-                        text: currentEvent.summary
+                        title: title,
+                        description: description,
+                        text: title
                     };
+                    notesImported++;
                 }
             }
             currentEvent = null;
         } else if(currentEvent) {
+            // Extraer fecha de diferentes formatos
             if(line.startsWith('DTSTART')) {
+                // Formato con timezone: DTSTART;TZID=Europe/Madrid:20250212T070000
                 const dateMatch = line.match(/(\d{4})(\d{2})(\d{2})/);
                 if(dateMatch) {
                     currentEvent.date = dateMatch[1] + '-' + dateMatch[2] + '-' + dateMatch[3];
                 }
             } else if(line.startsWith('SUMMARY:')) {
-                currentEvent.summary = line.substring(8);
+                currentEvent.summary = line.substring(8).trim();
             } else if(line.startsWith('DESCRIPTION:')) {
-                currentEvent.description = line.substring(12);
+                currentEvent.description = line.substring(12).trim();
             }
         }
     });
     
-    if(eventsImported > 0) {
-        saveData();
-        renderCalendar();
-        showToast('¡' + eventsImported + ' eventos importados!');
+    saveData();
+    renderCalendar();
+    
+    let message = '';
+    if(eventsImported > 0) message += eventsImported + ' turnos';
+    if(notesImported > 0) {
+        if(message) message += ' y ';
+        message += notesImported + ' notas';
+    }
+    
+    if(eventsImported > 0 || notesImported > 0) {
+        showToast('¡Importados: ' + message + '!');
     } else {
-        showToast('No se encontraron eventos compatibles');
+        showToast('No se encontraron eventos de turno');
     }
 }
 
