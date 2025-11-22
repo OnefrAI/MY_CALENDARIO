@@ -45,7 +45,7 @@
                 </div>
             </div>
             
-            <!-- SECCIÓN: TURNOS (REORDENADA CON COLORES) -->
+            <!-- SECCIÓN: TURNOS -->
             <div class="sidebar-section">
                 <h3 class="sidebar-section-title">Turnos</h3>
                 <button id="manageCustomShiftsBtn" class="btn btn-success-dark w-full mb-2">
@@ -70,7 +70,7 @@
                 </a>
             </div>
             
-            <!-- SECCIÓN: HERRAMIENTAS PRO (AL FINAL) -->
+            <!-- SECCIÓN: HERRAMIENTAS PRO -->
             <div class="sidebar-section">
                 <h3 class="sidebar-section-title" style="color: #fbbf24;">✨ Herramientas Pro</h3>
                 <button id="btnStats" class="btn btn-secondary w-full mb-2">
@@ -89,10 +89,18 @@
         <header class="mobile-header">
             <button id="hamburgerBtn" class="hamburger-btn"><i class="fas fa-bars"></i></button>
             <button id="prevMonth" class="btn-icon btn-secondary"><i class="fas fa-chevron-left"></i></button>
-            <h1 class="text-base font-bold flex-1 text-center" id="calendarTitle">Cal</h1>
+            
+            <!-- SELECTOR DE FECHA MEJORADO -->
+            <div class="date-selector-container">
+                <button id="datePickerBtn" class="date-picker-btn">
+                    <span id="calendarTitle">Noviembre 2025</span>
+                    <i class="fas fa-chevron-down"></i>
+                </button>
+            </div>
+            
+            <button id="nextMonth" class="btn-icon btn-secondary"><i class="fas fa-chevron-right"></i></button>
             <button id="themeToggleBtn" class="btn-icon btn-secondary"><i class="fas fa-moon"></i></button>
             <button id="todayBtn" class="btn btn-primary text-sm px-3 py-1">Hoy</button>
-            <button id="nextMonth" class="btn-icon btn-secondary"><i class="fas fa-chevron-right"></i></button>
         </header>
         <main id="mainCaptureArea">
             <section id="mainCalendarArea" class="hidden">
@@ -105,15 +113,48 @@
             </section>
         </main>
         <button id="fabEditBtn" class="fab-button hidden"><i class="fas fa-edit"></i></button>
+        
+        <!-- PANEL DE EDICIÓN CON PESTAÑAS -->
         <div id="floatingEditPanel" class="floating-edit-panel">
-            <div class="flex justify-between items-center mb-3">
+            <div class="flex justify-between items-center mb-2 panel-header">
                 <h3 class="text-base font-bold">Editar</h3>
                 <button id="closeEditPanelBtn" class="btn-icon btn-secondary"><i class="fas fa-times"></i></button>
             </div>
-            <div class="compact-edit-grid">
-                <div class="turno-buttons-row-1" id="shiftSelector"></div>
-                <div class="turno-buttons-row-2">
-                    <button class="turno-btn btn-borrar" data-shift-type="erase"><i class="fas fa-eraser"></i> Borrar</button>
+            
+            <!-- PESTAÑAS -->
+            <div class="tabs-container">
+                <button class="tab-btn active" onclick="switchTab('shifts')">
+                    <i class="fas fa-clock"></i> Turnos
+                </button>
+                <button class="tab-btn" onclick="switchTab('tasks')">
+                    <i class="fas fa-calendar-check"></i> Tareas
+                </button>
+            </div>
+            
+            <!-- CONTENIDO TURNOS -->
+            <div id="shiftsTab" class="tab-content active">
+                <div class="compact-edit-grid">
+                    <div class="turno-buttons-row-1" id="shiftSelector"></div>
+                    <div class="turno-buttons-row-2">
+                        <button class="turno-btn btn-borrar" data-shift-type="erase">
+                            <i class="fas fa-eraser"></i> Borrar
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- CONTENIDO TAREAS -->
+            <div id="tasksTab" class="tab-content">
+                <div class="compact-edit-grid">
+                    <div class="turno-buttons-row-1" id="taskSelector"></div>
+                    <div class="turno-buttons-row-2">
+                        <button class="turno-btn btn-borrar" data-task-type="eraseTask">
+                            <i class="fas fa-eraser"></i> Borrar
+                        </button>
+                        <button class="btn btn-success-dark" style="font-size: 0.75rem; padding: 0.6rem 0.3rem;" onclick="showCustomTasksManager()">
+                            <i class="fas fa-plus"></i> Mis Tareas
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
