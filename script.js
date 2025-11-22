@@ -9,13 +9,11 @@ const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','A
 const DEFAULT_SHIFT_TYPES = {'M':{label:'Mañana',color:'#00ff88',hours:8},'T':{label:'Tarde',color:'#ff9500',hours:8},'N':{label:'Noche',color:'#5e5ce6',hours:8},'L':{label:'Libre',color:'#64d2ff',hours:0}};
 let SHIFT_TYPES = {...DEFAULT_SHIFT_TYPES};
 
-// NUEVO: Tipos de tareas por defecto
+// Tipos de tareas por defecto (reducido a 3)
 const DEFAULT_TASKS = {
     'JUICIO': { label: 'Juicio', color: '#ef4444' },
-    'REUNION': { label: 'Reunión', color: '#3b82f6' },
     'CURSO': { label: 'Curso', color: '#f59e0b' },
-    'EXTRA': { label: 'Hora Extra', color: '#8b5cf6' },
-    'CITA': { label: 'Cita', color: '#ec4899' }
+    'EXTRA': { label: 'Hora Extra', color: '#8b5cf6', hasHours: true }
 };
 let TASK_TYPES = {...DEFAULT_TASKS};
 
@@ -23,7 +21,7 @@ let TASK_TYPES = {...DEFAULT_TASKS};
 const state = {
     currentDate: new Date(),
     selectedShiftType: null,
-    selectedTaskType: null,  // NUEVO
+    selectedTaskType: null,
     shiftData: {},
     notes: {},
     cycles: [],
@@ -32,7 +30,8 @@ const state = {
             name: 'Mi Calendario',
             shifts: {},
             notes: {},
-            tasks: {}  // NUEVO
+            tasks: {},  // Ahora será: { "2024-01-01": [{type: "JUICIO"}, {type: "EXTRA", hours: 2}] }
+            extraHours: {}  // Nuevo: almacenar horas extras por mes
         }
     },
     activeCalendar: 'default',
@@ -42,7 +41,7 @@ const state = {
     touchStartX: 0,
     touchStartY: 0,
     customShifts: {},
-    customTasks: {}  // NUEVO
+    customTasks: {}
 };
 
 function initCalendar() {
@@ -82,9 +81,24 @@ function loadActiveCalendar() {
     if(state.calendars[state.activeCalendar]) {
         state.shiftData = state.calendars[state.activeCalendar].shifts || {};
         state.notes = state.calendars[state.activeCalendar].notes || {};
-        // NUEVO: Cargar tareas
+        
+        // Migrar tareas antiguas al nuevo formato si es necesario
         if(!state.calendars[state.activeCalendar].tasks) {
             state.calendars[state.activeCalendar].tasks = {};
+        }
+        
+        // Asegurar que tasks sea un objeto con arrays
+        Object.keys(state.calendars[state.activeCalendar].tasks).forEach(function(dateStr) {
+            const tasks = state.calendars[state.activeCalendar].tasks[dateStr];
+            if(!Array.isArray(tasks)) {
+                // Convertir formato antiguo al nuevo
+                state.calendars[state.activeCalendar].tasks[dateStr] = [{type: tasks}];
+            }
+        });
+        
+        // Inicializar extraHours si no existe
+        if(!state.calendars[state.activeCalendar].extraHours) {
+            state.calendars[state.activeCalendar].extraHours = {};
         }
     }
 }
@@ -273,16 +287,43 @@ function createCell(date, num, isCurr, today) {
     dayDiv.textContent = num;
     cell.appendChild(dayDiv);
     
-    // NUEVO: Mostrar tareas
-    const taskCode = state.calendars[state.activeCalendar].tasks[dateStr];
-    if(taskCode && TASK_TYPES[taskCode]) {
-        const t = TASK_TYPES[taskCode];
+    // NUEVO: Mostrar múltiples tareas (máximo 2 visibles)
+    const tasksArray = state.calendars[state.activeCalendar].tasks[dateStr];
+    if(tasksArray && Array.isArray(tasksArray) && tasksArray.length > 0) {
         const taskContainer = document.createElement('div');
         taskContainer.className = 'task-badge-container';
-        taskContainer.innerHTML = `
-            <div class="task-pill" style="background-color: ${t.color}">
-                ${t.label}
-            </div>`;
+        
+        // Mostrar hasta 2 tareas
+        const visibleTasks = tasksArray.slice(0, 2);
+        visibleTasks.forEach(function(taskObj) {
+            const taskCode = taskObj.type;
+            if(TASK_TYPES[taskCode]) {
+                const t = TASK_TYPES[taskCode];
+                const pill = document.createElement('div');
+                pill.className = 'task-pill';
+                pill.style.backgroundColor = t.color;
+                
+                // Si es hora extra y tiene horas, mostrarlas
+                if(taskObj.hours) {
+                    pill.textContent = t.label + ' (' + taskObj.hours + 'h)';
+                } else {
+                    pill.textContent = t.label;
+                }
+                
+                taskContainer.appendChild(pill);
+            }
+        });
+        
+        // Si hay más de 2 tareas, mostrar indicador
+        if(tasksArray.length > 2) {
+            const moreIndicator = document.createElement('div');
+            moreIndicator.className = 'task-pill';
+            moreIndicator.style.backgroundColor = '#666';
+            moreIndicator.style.fontSize = '0.5rem';
+            moreIndicator.textContent = '+' + (tasksArray.length - 2);
+            taskContainer.appendChild(moreIndicator);
+        }
+        
         cell.appendChild(taskContainer);
     }
     
@@ -336,12 +377,148 @@ function setShift(dateStr, type) {
 // NUEVO: Función para establecer tareas
 function setTask(dateStr, type) {
     if(type === 'eraseTask') {
-        delete state.calendars[state.activeCalendar].tasks[dateStr];
+        // Modal para elegir qué tarea borrar
+        const tasksArray = state.calendars[state.activeCalendar].tasks[dateStr];
+        if(!tasksArray || tasksArray.length === 0) {
+            showToast('No hay tareas en este día');
+            return;
+        }
+        
+        if(tasksArray.length === 1) {
+            // Si solo hay una, borrarla directamente
+            delete state.calendars[state.activeCalendar].tasks[dateStr];
+            saveData();
+            renderCalendar();
+            showToast('Tarea eliminada');
+        } else {
+            // Mostrar selector de cuál borrar
+            showTaskDeleteSelector(dateStr, tasksArray);
+        }
+    } else if(type === 'EXTRA' && TASK_TYPES[type].hasHours) {
+        // Modal para pedir horas
+        showExtraHoursModal(dateStr, type);
     } else {
-        state.calendars[state.activeCalendar].tasks[dateStr] = type;
+        // Añadir tarea normal
+        if(!state.calendars[state.activeCalendar].tasks[dateStr]) {
+            state.calendars[state.activeCalendar].tasks[dateStr] = [];
+        }
+        
+        // Verificar si ya existe esta tarea
+        const exists = state.calendars[state.activeCalendar].tasks[dateStr].some(function(t) {
+            return t.type === type;
+        });
+        
+        if(!exists) {
+            state.calendars[state.activeCalendar].tasks[dateStr].push({type: type});
+            saveData();
+            renderCalendar();
+            showToast('Tarea añadida');
+        } else {
+            showToast('Ya existe esta tarea en el día');
+        }
     }
+}
+
+function showExtraHoursModal(dateStr, type) {
+    const date = new Date(dateStr);
+    const m = document.createElement('div');
+    m.className = 'modal-overlay visible';
+    
+    m.innerHTML = '<div class="modal-content" style="max-width:400px">' +
+        '<h3 class="text-lg font-bold mb-3">Hora Extra</h3>' +
+        '<p class="text-sm mb-3" style="color:var(--text-secondary)">' + 
+        date.getDate() + '/' + (date.getMonth()+1) + '/' + date.getFullYear() + '</p>' +
+        
+        '<label class="block mb-2 text-sm font-bold">¿Cuántas horas extra?</label>' +
+        '<input type="number" id="extraHoursInput" class="form-input w-full mb-3" placeholder="Ej: 2" min="0.5" max="24" step="0.5" value="1">' +
+        
+        '<div class="modal-actions">' +
+        '<button id="saveExtraHours" class="btn btn-primary"><i class="fas fa-save"></i> Guardar</button>' +
+        '<button id="cancelExtraHours" class="btn btn-secondary">Cancelar</button>' +
+        '</div></div>';
+    
+    document.body.appendChild(m);
+    
+    // Foco en input
+    setTimeout(function() {
+        document.getElementById('extraHoursInput').focus();
+    }, 100);
+    
+    document.getElementById('saveExtraHours').onclick = function() {
+        const hours = parseFloat(document.getElementById('extraHoursInput').value);
+        
+        if(!hours || hours <= 0) {
+            alert('Introduce un número de horas válido');
+            return;
+        }
+        
+        if(!state.calendars[state.activeCalendar].tasks[dateStr]) {
+            state.calendars[state.activeCalendar].tasks[dateStr] = [];
+        }
+        
+        state.calendars[state.activeCalendar].tasks[dateStr].push({
+            type: type,
+            hours: hours
+        });
+        
+        saveData();
+        renderCalendar();
+        document.body.removeChild(m);
+        showToast(hours + ' horas extra añadidas');
+    };
+    
+    document.getElementById('cancelExtraHours').onclick = function() {
+        document.body.removeChild(m);
+    };
+    
+    m.onclick = function(e) {
+        if(e.target === m) document.body.removeChild(m);
+    };
+}
+
+function showTaskDeleteSelector(dateStr, tasksArray) {
+    const date = new Date(dateStr);
+    const m = document.createElement('div');
+    m.className = 'modal-overlay visible';
+    
+    let html = '<div class="modal-content" style="max-width:400px">';
+    html += '<h3 class="text-lg font-bold mb-3">Borrar Tarea</h3>';
+    html += '<p class="text-sm mb-3" style="color:var(--text-secondary)">Selecciona qué tarea borrar:</p>';
+    
+    tasksArray.forEach(function(taskObj, idx) {
+        if(TASK_TYPES[taskObj.type]) {
+            const t = TASK_TYPES[taskObj.type];
+            html += '<button class="btn w-full mb-2" style="background:' + t.color + ';color:#fff" onclick="deleteTaskAtIndex(\'' + dateStr + '\',' + idx + ')">';
+            html += '<i class="fas fa-trash"></i> ' + t.label;
+            if(taskObj.hours) html += ' (' + taskObj.hours + 'h)';
+            html += '</button>';
+        }
+    });
+    
+    html += '<button class="btn btn-secondary w-full mt-2" onclick="closeModal(\'taskDeleteModal\')">Cancelar</button>';
+    html += '</div>';
+    
+    m.id = 'taskDeleteModal';
+    m.innerHTML = html;
+    document.body.appendChild(m);
+    
+    m.onclick = function(e) {
+        if(e.target === m) closeModal('taskDeleteModal');
+    };
+}
+
+function deleteTaskAtIndex(dateStr, idx) {
+    state.calendars[state.activeCalendar].tasks[dateStr].splice(idx, 1);
+    
+    // Si no quedan tareas, eliminar el array
+    if(state.calendars[state.activeCalendar].tasks[dateStr].length === 0) {
+        delete state.calendars[state.activeCalendar].tasks[dateStr];
+    }
+    
     saveData();
     renderCalendar();
+    closeModal('taskDeleteModal');
+    showToast('Tarea eliminada');
 }
 
 function showNote(dateStr, date) {
@@ -710,7 +887,7 @@ function setupSidebar() {
         const name = document.getElementById('newCalendarName').value.trim();
         if(!name) { alert('Escribe un nombre'); return; }
         const id = 'cal_' + Date.now();
-        state.calendars[id] = {name: name, shifts: {}, notes: {}, tasks: {}};
+        state.calendars[id] = {name: name, shifts: {}, notes: {}, tasks: {}, extraHours: {}};
         state.activeCalendar = id;
         loadActiveCalendar();
         updateCalendarSelector();
@@ -1499,6 +1676,7 @@ function showStatistics() {
         stats[key] = 0;
     });
     
+    // Contar turnos del mes
     Object.entries(state.shiftData).forEach(function(entry) {
         const d = new Date(entry[0]);
         if(d.getFullYear() === year && d.getMonth() === month) {
@@ -1508,10 +1686,29 @@ function showStatistics() {
         }
     });
     
+    // Calcular horas de turnos
     let totalHours = 0;
     Object.entries(stats).forEach(function(entry) {
         if(SHIFT_TYPES[entry[0]]) {
             totalHours += entry[1] * SHIFT_TYPES[entry[0]].hours;
+        }
+    });
+    
+    // NUEVO: Sumar horas extras del mes
+    let extraHoursTotal = 0;
+    let extraHoursCount = 0;
+    Object.entries(state.calendars[state.activeCalendar].tasks || {}).forEach(function(entry) {
+        const d = new Date(entry[0]);
+        if(d.getFullYear() === year && d.getMonth() === month) {
+            const tasksArray = entry[1];
+            if(Array.isArray(tasksArray)) {
+                tasksArray.forEach(function(task) {
+                    if(task.type === 'EXTRA' && task.hours) {
+                        extraHoursTotal += task.hours;
+                        extraHoursCount++;
+                    }
+                });
+            }
         }
     });
     
@@ -1523,11 +1720,30 @@ function showStatistics() {
     html += '<h3 class="text-xl font-bold mb-4"><i class="fas fa-chart-pie"></i> Estadísticas</h3>';
     html += '<p class="text-sm mb-4" style="color:var(--text-secondary)">' + MONTH_NAMES[month] + ' ' + year + '</p>';
     
+    // Total de horas
     html += '<div class="mb-4 p-3 rounded-lg" style="background:var(--bg-tertiary)">';
     html += '<div class="text-2xl font-bold text-center mb-2">' + totalHours + ' horas</div>';
-    html += '<div class="text-xs text-center" style="color:var(--text-secondary)">Total trabajadas</div>';
+    html += '<div class="text-xs text-center" style="color:var(--text-secondary)">Total de turnos</div>';
     html += '</div>';
     
+    // NUEVO: Mostrar horas extras si existen
+    if(extraHoursTotal > 0) {
+        html += '<div class="mb-4 p-3 rounded-lg" style="background:#8b5cf6;color:white">';
+        html += '<div class="flex items-center justify-between">';
+        html += '<div>';
+        html += '<div class="text-lg font-bold">+ ' + extraHoursTotal + ' horas extra</div>';
+        html += '<div class="text-xs opacity-80">En ' + extraHoursCount + ' día(s)</div>';
+        html += '</div>';
+        html += '<i class="fas fa-clock text-3xl opacity-50"></i>';
+        html += '</div></div>';
+        
+        html += '<div class="mb-4 p-3 rounded-lg" style="background:var(--accent-primary);color:var(--accent-text)">';
+        html += '<div class="text-3xl font-bold text-center">' + (totalHours + extraHoursTotal) + ' h</div>';
+        html += '<div class="text-sm text-center font-bold">TOTAL GENERAL</div>';
+        html += '</div>';
+    }
+    
+    // Detalle por turno
     html += '<div class="mb-4">';
     Object.entries(stats).forEach(function(entry) {
         if(SHIFT_TYPES[entry[0]] && entry[1] > 0) {
