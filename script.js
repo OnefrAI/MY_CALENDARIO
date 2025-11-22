@@ -8,26 +8,60 @@ document.addEventListener('DOMContentLoaded', function() {
 const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const DEFAULT_SHIFT_TYPES = {'M':{label:'Mañana',color:'#00ff88',hours:8},'T':{label:'Tarde',color:'#ff9500',hours:8},'N':{label:'Noche',color:'#5e5ce6',hours:8},'L':{label:'Libre',color:'#64d2ff',hours:0}};
 let SHIFT_TYPES = {...DEFAULT_SHIFT_TYPES};
-const state = {currentDate:new Date(),selectedShiftType:null,shiftData:{},notes:{},cycles:[],calendars:{default:{name:'Mi Calendario',shifts:{},notes:{}}},activeCalendar:'default',isEditMode:false,isBuildingCycle:false,cycleBuilder:[],touchStartX:0,touchStartY:0,customShifts:{}};
+
+// NUEVO: Tipos de tareas por defecto
+const DEFAULT_TASKS = {
+    'JUICIO': { label: 'Juicio', color: '#ef4444' },
+    'REUNION': { label: 'Reunión', color: '#3b82f6' },
+    'CURSO': { label: 'Curso', color: '#f59e0b' },
+    'EXTRA': { label: 'Hora Extra', color: '#8b5cf6' },
+    'CITA': { label: 'Cita', color: '#ec4899' }
+};
+let TASK_TYPES = {...DEFAULT_TASKS};
+
+// Estado global actualizado con tareas
+const state = {
+    currentDate: new Date(),
+    selectedShiftType: null,
+    selectedTaskType: null,  // NUEVO
+    shiftData: {},
+    notes: {},
+    cycles: [],
+    calendars: {
+        default: {
+            name: 'Mi Calendario',
+            shifts: {},
+            notes: {},
+            tasks: {}  // NUEVO
+        }
+    },
+    activeCalendar: 'default',
+    isEditMode: false,
+    isBuildingCycle: false,
+    cycleBuilder: [],
+    touchStartX: 0,
+    touchStartY: 0,
+    customShifts: {},
+    customTasks: {}  // NUEVO
+};
 
 function initCalendar() {
     loadActiveCalendar();
     loadCustomShifts();
+    loadCustomTasks();  // NUEVO
     renderCalendar();
     setupEvents();
     loadData();
     
-    // Registrar Service Worker para notificaciones (opcional - no bloquea si falla)
+    // Registrar Service Worker para notificaciones
     if ('serviceWorker' in navigator) {
-        // Intentar ruta relativa primero
         const swPath = window.location.pathname.includes('calendario-del-GUARD-IA') 
-            ? '../../sw.js'  // Desde subcarpeta
-            : '/sw.js';       // Desde raíz
+            ? '../../sw.js'
+            : '/sw.js';
             
         navigator.serviceWorker.register(swPath)
             .then(() => {
                 console.log('[GUARDIA] Service Worker registrado');
-                // Pedir permisos de notificación solo si SW funciona
                 if ('Notification' in window && Notification.permission === 'default') {
                     setTimeout(() => {
                         Notification.requestPermission().then((permission) => {
@@ -39,8 +73,7 @@ function initCalendar() {
                 }
             })
             .catch((err) => {
-                console.warn('[GUARDIA] Service Worker no disponible (modo sin notificaciones):', err);
-                // Continuar sin notificaciones - no es crítico
+                console.warn('[GUARDIA] Service Worker no disponible:', err);
             });
     }
 }
@@ -49,6 +82,10 @@ function loadActiveCalendar() {
     if(state.calendars[state.activeCalendar]) {
         state.shiftData = state.calendars[state.activeCalendar].shifts || {};
         state.notes = state.calendars[state.activeCalendar].notes || {};
+        // NUEVO: Cargar tareas
+        if(!state.calendars[state.activeCalendar].tasks) {
+            state.calendars[state.activeCalendar].tasks = {};
+        }
     }
 }
 
@@ -62,9 +99,26 @@ function loadCustomShifts() {
     } catch(e) {}
 }
 
+// NUEVO: Cargar tareas personalizadas
+function loadCustomTasks() {
+    try {
+        const saved = localStorage.getItem('guardia_custom_tasks');
+        if(saved) {
+            state.customTasks = JSON.parse(saved);
+            TASK_TYPES = {...DEFAULT_TASKS, ...state.customTasks};
+        }
+    } catch(e) {}
+}
+
 function saveCustomShifts() {
     localStorage.setItem('guardia_custom_shifts', JSON.stringify(state.customShifts));
     SHIFT_TYPES = {...DEFAULT_SHIFT_TYPES, ...state.customShifts};
+}
+
+// NUEVO: Guardar tareas personalizadas
+function saveCustomTasks() {
+    localStorage.setItem('guardia_custom_tasks', JSON.stringify(state.customTasks));
+    TASK_TYPES = {...DEFAULT_TASKS, ...state.customTasks};
 }
 
 function renderCalendar() {
@@ -208,7 +262,6 @@ function createCell(date, num, isCurr, today) {
         cell.style.backgroundColor = SHIFT_TYPES[shift].color;
         cell.classList.add('has-shift');
         
-        // Badge del tipo de turno en la esquina superior izquierda
         const shiftBadge = document.createElement('div');
         shiftBadge.className = 'shift-type-badge';
         shiftBadge.textContent = shift;
@@ -220,21 +273,29 @@ function createCell(date, num, isCurr, today) {
     dayDiv.textContent = num;
     cell.appendChild(dayDiv);
     
+    // NUEVO: Mostrar tareas
+    const taskCode = state.calendars[state.activeCalendar].tasks[dateStr];
+    if(taskCode && TASK_TYPES[taskCode]) {
+        const t = TASK_TYPES[taskCode];
+        const taskContainer = document.createElement('div');
+        taskContainer.className = 'task-badge-container';
+        taskContainer.innerHTML = `
+            <div class="task-pill" style="background-color: ${t.color}">
+                ${t.label}
+            </div>`;
+        cell.appendChild(taskContainer);
+    }
+    
     // Mostrar título de nota si existe
     if(state.notes[dateStr]) {
         const noteDiv = document.createElement('div');
         noteDiv.className = 'note-content';
         
-        // Si la nota tiene estructura nueva (title/description)
         if(typeof state.notes[dateStr] === 'object' && state.notes[dateStr].title) {
             noteDiv.textContent = state.notes[dateStr].title;
-        } 
-        // Si es nota antigua (solo texto)
-        else if(typeof state.notes[dateStr] === 'string') {
+        } else if(typeof state.notes[dateStr] === 'string') {
             noteDiv.textContent = state.notes[dateStr];
-        }
-        // Si tiene la propiedad text
-        else if(state.notes[dateStr].text) {
+        } else if(state.notes[dateStr].text) {
             noteDiv.textContent = state.notes[dateStr].text;
         }
         
@@ -247,10 +308,13 @@ function createCell(date, num, isCurr, today) {
         if(state.isEditMode) {
             cell.style.cursor = 'pointer';
             cell.onclick = function() {
+                // MODIFICADO: Soportar turnos Y tareas
                 if(state.selectedShiftType) {
                     setShift(dateStr, state.selectedShiftType);
+                } else if(state.selectedTaskType) {
+                    setTask(dateStr, state.selectedTaskType);
                 } else {
-                    showToast('Selecciona un turno primero');
+                    showToast('Selecciona un turno o tarea primero');
                 }
             };
         }
@@ -269,6 +333,17 @@ function setShift(dateStr, type) {
     renderCalendar();
 }
 
+// NUEVO: Función para establecer tareas
+function setTask(dateStr, type) {
+    if(type === 'eraseTask') {
+        delete state.calendars[state.activeCalendar].tasks[dateStr];
+    } else {
+        state.calendars[state.activeCalendar].tasks[dateStr] = type;
+    }
+    saveData();
+    renderCalendar();
+}
+
 function showNote(dateStr, date) {
     const existing = state.notes[dateStr];
     const existingTitle = existing ? (existing.title || '') : '';
@@ -279,13 +354,13 @@ function showNote(dateStr, date) {
     const m = document.createElement('div');
     m.className = 'modal-overlay visible';
     m.innerHTML = '<div class="modal-content" style="max-width:500px">' +
-        '<h3 class="text-lg font-bold mb-3">Nota ' + date.getDate() + '/' + (date.getMonth()+1) + '/' + date.getFullYear() + '</h3>' +
+        '<h3 class="text-lg font-bold mb-3">Nota: ' + date.getDate() + '/' + (date.getMonth()+1) + '/' + date.getFullYear() + '</h3>' +
         
         '<label class="block mb-2 text-sm font-bold">Título (visible en calendario):</label>' +
         '<input type="text" id="noteTitle" class="form-input w-full mb-3" placeholder="Ej: Reunión, Cita médica..." value="' + existingTitle.replace(/"/g, '&quot;') + '" maxlength="50">' +
         
-        '<label class="block mb-2 text-sm font-bold">Descripción detallada:</label>' +
-        '<textarea id="noteDescription" class="form-input w-full mb-3" rows="4" placeholder="Detalles adicionales, horarios, ubicación...">' + existingDesc.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</textarea>' +
+        '<label class="block mb-2 text-sm font-bold">Descripción:</label>' +
+        '<textarea id="noteDescription" class="form-input w-full mb-3" rows="4" placeholder="Detalles adicionales...">' + existingDesc.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</textarea>' +
         
         '<div class="mb-3 p-3 rounded-lg" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">' +
         '<label class="block mb-2 text-sm font-bold flex items-center gap-2"><i class="fas fa-bell" style="color:var(--accent-primary)"></i> Recordatorio</label>' +
@@ -297,17 +372,15 @@ function showNote(dateStr, date) {
         '<option value="1week" ' + (existingReminder === '1week' ? 'selected' : '') + '>1 semana antes a las:</option>' +
         '</select>' +
         '<input type="time" id="reminderTime" class="form-input w-full" value="' + existingReminderTime + '" ' + (existingReminder === 'none' ? 'disabled' : '') + '>' +
-        '<p class="text-xs mt-2" style="color:var(--text-secondary)"><i class="fas fa-info-circle"></i> Las notificaciones funcionan aunque cierres el navegador (Android/PC)</p>' +
         '</div>' +
         
-        '<div class="flex gap-2">' +
-        '<button id="saveNote" class="btn btn-primary flex-1"><i class="fas fa-save"></i> Guardar</button>' +
-        '<button id="delNote" class="btn btn-danger flex-1"><i class="fas fa-trash"></i> Borrar</button>' +
-        '<button id="cancelNote" class="btn btn-secondary flex-1"><i class="fas fa-times"></i> Cancelar</button>' +
+        '<div class="modal-actions-triple">' +
+        '<button id="saveNote" class="btn btn-primary"><i class="fas fa-save"></i> Guardar</button>' +
+        '<button id="delNote" class="btn-icon btn-danger"><i class="fas fa-trash"></i></button>' +
+        '<button id="cancelNote" class="btn btn-secondary">Cancelar</button>' +
         '</div></div>';
     document.body.appendChild(m);
     
-    // Habilitar/deshabilitar campo de hora según selector
     document.getElementById('reminderType').onchange = function() {
         document.getElementById('reminderTime').disabled = this.value === 'none';
     };
@@ -322,16 +395,14 @@ function showNote(dateStr, date) {
             state.notes[dateStr] = {
                 title: title,
                 description: description,
-                text: title, // Para compatibilidad
+                text: title,
                 reminder: reminderType,
                 reminderTime: reminderTime
             };
             
-            // Programar notificación si se configuró
             if(reminderType !== 'none') {
                 scheduleNotification(dateStr, date, title, description, reminderType, reminderTime);
             } else {
-                // Cancelar notificación si existía
                 cancelNotification(dateStr);
             }
         } else {
@@ -403,7 +474,9 @@ function setupEvents() {
         renderCalendar();
     };
     
-    // Botón de tema en el header
+    // NUEVO: Selector de fecha
+    document.getElementById('datePickerBtn').onclick = showDatePicker;
+    
     const themeBtn = document.getElementById('themeToggleBtn');
     updateThemeIcon();
     themeBtn.onclick = function() {
@@ -426,6 +499,7 @@ function setupEvents() {
             fab.classList.remove('edit-active');
             panel.classList.remove('active');
             state.selectedShiftType = null;
+            state.selectedTaskType = null;  // NUEVO
             updateBtns();
         }
         renderCalendar();
@@ -436,6 +510,7 @@ function setupEvents() {
         fab.classList.remove('edit-active');
         panel.classList.remove('active');
         state.selectedShiftType = null;
+        state.selectedTaskType = null;  // NUEVO
         updateBtns();
         renderCalendar();
     };
@@ -445,6 +520,58 @@ function setupEvents() {
     setupSwipeGestures();
 }
 
+// NUEVO: Mostrar selector de fecha
+function showDatePicker() {
+    const m = document.createElement('div');
+    m.className = 'modal-overlay visible';
+    
+    const currentYear = state.currentDate.getFullYear();
+    const currentMonth = state.currentDate.getMonth();
+    
+    let html = '<div class="modal-content" style="max-width:400px">';
+    html += '<h3 class="text-lg font-bold mb-4 text-center">Ir a fecha</h3>';
+    
+    // Selector de año
+    html += '<div class="flex items-center justify-center gap-3 mb-4">';
+    html += '<button class="btn-icon btn-secondary" onclick="changeYear(-1)"><i class="fas fa-minus"></i></button>';
+    html += '<span id="yearDisplay" class="text-2xl font-bold" style="min-width:100px;text-align:center">' + currentYear + '</span>';
+    html += '<button class="btn-icon btn-secondary" onclick="changeYear(1)"><i class="fas fa-plus"></i></button>';
+    html += '</div>';
+    
+    // Grid de meses
+    html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;margin-bottom:1rem">';
+    MONTH_NAMES.forEach(function(monthName, idx) {
+        const isSelected = idx === currentMonth && currentYear === parseInt(document.getElementById('yearDisplay')?.textContent || currentYear);
+        html += '<button class="btn ' + (isSelected ? 'btn-primary' : 'btn-secondary') + '" onclick="selectMonth(' + idx + ')" style="padding:0.75rem">' + monthName.substring(0,3) + '</button>';
+    });
+    html += '</div>';
+    
+    html += '<button class="btn btn-secondary w-full" onclick="closeModal(\'datePickerModal\')">Cerrar</button>';
+    html += '</div>';
+    
+    m.id = 'datePickerModal';
+    m.innerHTML = html;
+    document.body.appendChild(m);
+    
+    m.onclick = function(e) { 
+        if(e.target === m) closeModal('datePickerModal'); 
+    };
+}
+
+function changeYear(delta) {
+    const yearDisplay = document.getElementById('yearDisplay');
+    const newYear = parseInt(yearDisplay.textContent) + delta;
+    yearDisplay.textContent = newYear;
+}
+
+function selectMonth(monthIndex) {
+    const yearDisplay = document.getElementById('yearDisplay');
+    const year = parseInt(yearDisplay.textContent);
+    state.currentDate = new Date(year, monthIndex, 1);
+    renderCalendar();
+    closeModal('datePickerModal');
+}
+
 function updateThemeIcon() {
     const btn = document.getElementById('themeToggleBtn');
     const isLight = document.body.classList.contains('light-mode');
@@ -452,6 +579,7 @@ function updateThemeIcon() {
 }
 
 function setupShiftBtns() {
+    // Botones de turnos
     const sel = document.getElementById('shiftSelector');
     sel.innerHTML = '';
     Object.entries(SHIFT_TYPES).forEach(function(e) {
@@ -461,18 +589,76 @@ function setupShiftBtns() {
         btn.style.backgroundColor = e[1].color;
         btn.style.color = '#000';
         btn.dataset.shiftType = e[0];
-        btn.onclick = function() { state.selectedShiftType=e[0]; updateBtns(); };
+        btn.onclick = function() { 
+            state.selectedShiftType = e[0];
+            state.selectedTaskType = null;
+            updateBtns(); 
+        };
         sel.appendChild(btn);
     });
     
     const eBtn = document.querySelector('[data-shift-type="erase"]');
-    if(eBtn) eBtn.onclick = function() { state.selectedShiftType='erase'; updateBtns(); };
+    if(eBtn) eBtn.onclick = function() { 
+        state.selectedShiftType = 'erase';
+        state.selectedTaskType = null;
+        updateBtns(); 
+    };
+    
+    // Botones de tareas
+    const taskSel = document.getElementById('taskSelector');
+    if(taskSel) {
+        taskSel.innerHTML = '';
+        Object.entries(TASK_TYPES).forEach(function(e) {
+            const btn = document.createElement('button');
+            btn.className = 'task-button';
+            btn.textContent = e[1].label;
+            btn.style.backgroundColor = e[1].color;
+            btn.style.color = '#fff';
+            btn.dataset.taskType = e[0];
+            btn.onclick = function() {
+                state.selectedTaskType = e[0];
+                state.selectedShiftType = null;
+                updateBtns();
+            };
+            taskSel.appendChild(btn);
+        });
+        
+        const eTaskBtn = document.querySelector('[data-task-type="eraseTask"]');
+        if(eTaskBtn) eTaskBtn.onclick = function() {
+            state.selectedTaskType = 'eraseTask';
+            state.selectedShiftType = null;
+            updateBtns();
+        };
+    }
+}
+
+// NUEVO: Función para cambiar entre pestañas
+function switchTab(tabName) {
+    // Ocultar todos los contenidos
+    document.querySelectorAll('.tab-content').forEach(function(content) {
+        content.classList.remove('active');
+    });
+    
+    // Desactivar todos los botones
+    document.querySelectorAll('.tab-btn').forEach(function(btn) {
+        btn.classList.remove('active');
+    });
+    
+    // Activar pestaña seleccionada
+    document.getElementById(tabName + 'Tab').classList.add('active');
+    event.target.closest('.tab-btn').classList.add('active');
 }
 
 function updateBtns() {
-    document.querySelectorAll('.shift-button, .turno-btn').forEach(function(b) {
-        if(b.dataset.shiftType === state.selectedShiftType) b.classList.add('selected');
-        else b.classList.remove('selected');
+    document.querySelectorAll('.shift-button, .task-button, .turno-btn').forEach(function(b) {
+        const isShiftSelected = b.dataset.shiftType === state.selectedShiftType;
+        const isTaskSelected = b.dataset.taskType === state.selectedTaskType;
+        
+        if(isShiftSelected || isTaskSelected) {
+            b.classList.add('selected');
+        } else {
+            b.classList.remove('selected');
+        }
     });
 }
 
@@ -499,7 +685,6 @@ function setupSidebar() {
         showCustomShiftsManager();
     };
     
-    // NUEVOS BOTONES PRO
     document.getElementById('btnStats').onclick = function() {
         closeSb();
         showStatistics();
@@ -525,7 +710,7 @@ function setupSidebar() {
         const name = document.getElementById('newCalendarName').value.trim();
         if(!name) { alert('Escribe un nombre'); return; }
         const id = 'cal_' + Date.now();
-        state.calendars[id] = {name: name, shifts: {}, notes: {}};
+        state.calendars[id] = {name: name, shifts: {}, notes: {}, tasks: {}};
         state.activeCalendar = id;
         loadActiveCalendar();
         updateCalendarSelector();
@@ -552,9 +737,10 @@ function setupSidebar() {
     };
     
     document.getElementById('clearAllShiftsBtn').onclick = function() {
-        if(confirm('¿Borrar TODOS los turnos y notas del calendario actual? Esta accion no se puede deshacer')) {
+        if(confirm('¿Borrar TODOS los turnos, tareas y notas del calendario actual?')) {
             state.shiftData = {};
             state.notes = {};
+            state.calendars[state.activeCalendar].tasks = {};
             saveData();
             renderCalendar();
             showToast('Calendario limpiado');
@@ -565,6 +751,109 @@ function setupSidebar() {
         closeSb();
         showHelp();
     };
+}
+
+// NUEVO: Gestor de tareas personalizadas
+function showCustomTasksManager() {
+    const m = document.createElement('div');
+    m.id = 'customTasksModal';
+    m.className = 'modal-overlay visible';
+    
+    let html = '<div class="modal-content" style="max-width:600px;max-height:80vh;overflow-y:auto;">';
+    html += '<h3 class="text-xl font-bold mb-4"><i class="fas fa-calendar-check"></i> Mis Tareas Personalizadas</h3>';
+    
+    html += '<div class="mb-4 p-3 rounded-lg" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
+    html += '<h4 class="font-bold mb-2 text-sm">Tareas por Defecto</h4>';
+    html += '<div class="flex gap-2 flex-wrap">';
+    Object.entries(DEFAULT_TASKS).forEach(function(e) {
+        html += '<span class="px-3 py-1 rounded text-sm font-bold" style="background:' + e[1].color + ';color:#fff">';
+        html += e[1].label + '</span>';
+    });
+    html += '</div></div>';
+    
+    if(Object.keys(state.customTasks).length > 0) {
+        html += '<div class="mb-4"><h4 class="font-bold mb-2 text-sm">Tus Tareas Personalizadas</h4>';
+        Object.entries(state.customTasks).forEach(function(e) {
+            html += '<div class="mb-2 p-2 rounded-lg flex justify-between items-center" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
+            html += '<span class="px-3 py-1 rounded font-bold" style="background:' + e[1].color + ';color:#fff">' + e[1].label + '</span>';
+            html += '<button class="btn-icon btn-danger" onclick="deleteCustomTask(\'' + e[0] + '\')"><i class="fas fa-trash"></i></button>';
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    
+    html += '<button class="btn btn-primary w-full mt-3" onclick="createCustomTask()"><i class="fas fa-plus"></i> Crear Nueva Tarea</button>';
+    html += '<button class="btn btn-secondary w-full mt-2" onclick="closeModal(\'customTasksModal\')">Cerrar</button>';
+    html += '</div>';
+    
+    m.innerHTML = html;
+    document.body.appendChild(m);
+    m.onclick = function(e) { if(e.target === m) closeModal('customTasksModal'); };
+}
+
+function createCustomTask() {
+    closeModal('customTasksModal');
+    const m = document.createElement('div');
+    m.id = 'createTaskModal';
+    m.className = 'modal-overlay visible';
+    
+    let html = '<div class="modal-content" style="max-width:500px">';
+    html += '<h3 class="text-lg font-bold mb-3"><i class="fas fa-plus"></i> Crear Tarea Personalizada</h3>';
+    
+    html += '<label class="block mb-2 text-sm font-bold">Nombre de la tarea:</label>';
+    html += '<input type="text" id="taskLabel" class="form-input w-full mb-3" placeholder="Ej: Entrenamiento, Visita médica">';
+    
+    html += '<label class="block mb-2 text-sm font-bold">Color:</label>';
+    html += '<div class="flex gap-2 mb-3 flex-wrap">';
+    const colors = ['#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#f43f5e','#84cc16'];
+    colors.forEach(function(c) {
+        html += '<button class="color-picker-btn" style="background:' + c + '" data-color="' + c + '" onclick="selectTaskColor(\'' + c + '\')"></button>';
+    });
+    html += '</div>';
+    html += '<input type="color" id="taskColor" class="form-input w-full mb-3" value="#3b82f6">';
+    
+    html += '<div class="modal-actions">';
+    html += '<button class="btn btn-primary" onclick="saveNewCustomTask()"><i class="fas fa-save"></i> Guardar</button>';
+    html += '<button class="btn btn-secondary" onclick="closeModal(\'createTaskModal\');showCustomTasksManager()">Cancelar</button>';
+    html += '</div></div>';
+    
+    m.innerHTML = html;
+    document.body.appendChild(m);
+}
+
+function selectTaskColor(color) {
+    document.getElementById('taskColor').value = color;
+    document.querySelectorAll('.color-picker-btn').forEach(function(btn) {
+        if(btn.dataset.color === color) btn.classList.add('selected');
+        else btn.classList.remove('selected');
+    });
+}
+
+function saveNewCustomTask() {
+    const label = document.getElementById('taskLabel').value.trim();
+    const color = document.getElementById('taskColor').value;
+    
+    if(!label) { alert('Pon un nombre a la tarea'); return; }
+    
+    const code = 'TASK_' + Date.now();
+    state.customTasks[code] = {label: label, color: color};
+    saveCustomTasks();
+    setupShiftBtns();
+    closeModal('createTaskModal');
+    showCustomTasksManager();
+    showToast('Tarea creada: ' + label);
+}
+
+function deleteCustomTask(code) {
+    if(confirm('¿Borrar esta tarea?')) {
+        delete state.customTasks[code];
+        saveCustomTasks();
+        setupShiftBtns();
+        renderCalendar();
+        closeModal('customTasksModal');
+        showCustomTasksManager();
+        showToast('Tarea eliminada');
+    }
 }
 
 function showCustomShiftsManager() {
@@ -619,14 +908,14 @@ function createCustomShift() {
     let html = '<div class="modal-content" style="max-width:500px">';
     html += '<h3 class="text-lg font-bold mb-3"><i class="fas fa-plus"></i> Crear Turno Personalizado</h3>';
     
-    html += '<label class="block mb-2 text-sm font-bold">Letra/Código (1-2 caracteres):</label>';
+    html += '<label class="block mb-2 text-sm font-bold">Letra/Código (1-3 caracteres):</label>';
     html += '<input type="text" id="shiftCode" class="form-input w-full mb-3" placeholder="Ej: G, F, M12" maxlength="3">';
     
     html += '<label class="block mb-2 text-sm font-bold">Nombre del turno:</label>';
-    html += '<input type="text" id="shiftLabel" class="form-input w-full mb-3" placeholder="Ej: Guardia 24h, Formación">';
+    html += '<input type="text" id="shiftLabel" class="form-input w-full mb-3" placeholder="Ej: Guardia 24h">';
     
     html += '<label class="block mb-2 text-sm font-bold">Duración (horas):</label>';
-    html += '<input type="number" id="shiftHours" class="form-input w-full mb-3" placeholder="Ej: 8, 12, 24" min="0" max="24" value="8">';
+    html += '<input type="number" id="shiftHours" class="form-input w-full mb-3" min="0" max="24" value="8">';
     
     html += '<label class="block mb-2 text-sm font-bold">Color:</label>';
     html += '<div class="flex gap-2 mb-3 flex-wrap">';
@@ -637,21 +926,19 @@ function createCustomShift() {
     html += '</div>';
     html += '<input type="color" id="shiftColor" class="form-input w-full mb-3" value="#00ff88">';
     
-    html += '<div id="shiftPreview" class="p-3 rounded-lg mb-3 text-center" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
-    html += '<div class="text-xs mb-2" style="color:var(--text-secondary)">Vista previa:</div>';
+    html += '<div id="shiftPreview" class="p-3 rounded-lg mb-3 text-center" style="background:var(--bg-tertiary)">';
     html += '<span id="previewBadge" class="px-4 py-2 rounded font-bold text-lg" style="background:#00ff88;color:#000">?</span>';
     html += '</div>';
     
-    html += '<div class="flex gap-2">';
-    html += '<button class="btn btn-primary flex-1" onclick="saveNewCustomShift()"><i class="fas fa-save"></i> Guardar</button>';
-    html += '<button class="btn btn-secondary flex-1" onclick="closeModal(\'createShiftModal\');showCustomShiftsManager()">Cancelar</button>';
+    html += '<div class="modal-actions">';
+    html += '<button class="btn btn-primary" onclick="saveNewCustomShift()"><i class="fas fa-save"></i> Guardar</button>';
+    html += '<button class="btn btn-secondary" onclick="closeModal(\'createShiftModal\');showCustomShiftsManager()">Cancelar</button>';
     html += '</div></div>';
     
     m.innerHTML = html;
     document.body.appendChild(m);
     
     document.getElementById('shiftCode').oninput = updateShiftPreview;
-    document.getElementById('shiftLabel').oninput = updateShiftPreview;
     document.getElementById('shiftColor').oninput = updateShiftPreview;
     updateShiftPreview();
 }
@@ -683,7 +970,7 @@ function saveNewCustomShift() {
     
     if(!code || code.length > 3) { alert('El código debe tener 1-3 caracteres'); return; }
     if(!label) { alert('Pon un nombre al turno'); return; }
-    if(DEFAULT_SHIFT_TYPES[code]) { alert('Este código está reservado para turnos por defecto'); return; }
+    if(DEFAULT_SHIFT_TYPES[code]) { alert('Este código está reservado'); return; }
     
     state.customShifts[code] = {label: label, color: color, hours: hours};
     saveCustomShifts();
@@ -702,41 +989,24 @@ function editCustomShift(code) {
     m.className = 'modal-overlay visible';
     
     let html = '<div class="modal-content" style="max-width:500px">';
-    html += '<h3 class="text-lg font-bold mb-3"><i class="fas fa-edit"></i> Editar Turno: ' + code + '</h3>';
+    html += '<h3 class="text-lg font-bold mb-3"><i class="fas fa-edit"></i> Editar: ' + code + '</h3>';
     
-    html += '<label class="block mb-2 text-sm font-bold">Nombre del turno:</label>';
+    html += '<label class="block mb-2 text-sm font-bold">Nombre:</label>';
     html += '<input type="text" id="shiftLabel" class="form-input w-full mb-3" value="' + shift.label + '">';
     
-    html += '<label class="block mb-2 text-sm font-bold">Duración (horas):</label>';
+    html += '<label class="block mb-2 text-sm font-bold">Horas:</label>';
     html += '<input type="number" id="shiftHours" class="form-input w-full mb-3" min="0" max="24" value="' + shift.hours + '">';
     
     html += '<label class="block mb-2 text-sm font-bold">Color:</label>';
-    html += '<div class="flex gap-2 mb-3 flex-wrap">';
-    const colors = ['#00ff88','#ff9500','#5e5ce6','#64d2ff','#f43f5e','#ec4899','#a855f7','#3b82f6','#10b981','#f59e0b','#ef4444','#84cc16'];
-    colors.forEach(function(c) {
-        html += '<button class="color-picker-btn ' + (c===shift.color?'selected':'') + '" style="background:' + c + '" data-color="' + c + '" onclick="selectColor(\'' + c + '\')"></button>';
-    });
-    html += '</div>';
     html += '<input type="color" id="shiftColor" class="form-input w-full mb-3" value="' + shift.color + '">';
     
-    html += '<div id="shiftPreview" class="p-3 rounded-lg mb-3 text-center" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
-    html += '<span id="previewBadge" class="px-4 py-2 rounded font-bold text-lg" style="background:' + shift.color + ';color:#000">' + code + '</span>';
-    html += '</div>';
-    
-    html += '<div class="flex gap-2">';
-    html += '<button class="btn btn-primary flex-1" onclick="updateCustomShift(\'' + code + '\')"><i class="fas fa-save"></i> Guardar</button>';
-    html += '<button class="btn btn-secondary flex-1" onclick="closeModal(\'editShiftModal\');showCustomShiftsManager()">Cancelar</button>';
+    html += '<div class="modal-actions">';
+    html += '<button class="btn btn-primary" onclick="updateCustomShift(\'' + code + '\')"><i class="fas fa-save"></i> Guardar</button>';
+    html += '<button class="btn btn-secondary" onclick="closeModal(\'editShiftModal\');showCustomShiftsManager()">Cancelar</button>';
     html += '</div></div>';
     
     m.innerHTML = html;
     document.body.appendChild(m);
-    
-    document.getElementById('shiftLabel').oninput = function() {
-        document.getElementById('previewBadge').textContent = code;
-    };
-    document.getElementById('shiftColor').oninput = function() {
-        document.getElementById('previewBadge').style.background = this.value;
-    };
 }
 
 function updateCustomShift(code) {
@@ -756,7 +1026,7 @@ function updateCustomShift(code) {
 }
 
 function deleteCustomShift(code) {
-    if(confirm('¿Borrar el turno "' + code + '"? Los días con este turno quedarán sin turno asignado.')) {
+    if(confirm('¿Borrar el turno "' + code + '"?')) {
         delete state.customShifts[code];
         saveCustomShifts();
         setupShiftBtns();
@@ -794,7 +1064,6 @@ function importFromICS() {
                 const icsContent = event.target.result;
                 parseICSAndImport(icsContent);
             } catch(error) {
-                console.error('Error leyendo archivo ICS:', error);
                 showToast('Error al leer el archivo');
             }
         };
@@ -816,52 +1085,37 @@ function parseICSAndImport(icsContent) {
         if(line === 'BEGIN:VEVENT') {
             currentEvent = {};
         } else if(line === 'END:VEVENT' && currentEvent) {
-            // Procesar evento
             if(currentEvent.date && currentEvent.summary) {
                 const summary = currentEvent.summary.toUpperCase();
                 let shiftCode = null;
                 
-                // Detectar tipo de turno por palabras clave
                 if(summary.includes('MAÑANA') || summary.includes('MANANA')) {
                     shiftCode = 'M';
                 } else if(summary.includes('TARDE')) {
                     shiftCode = 'T';
                 } else if(summary.includes('NOCHE')) {
                     shiftCode = 'N';
-                } else if(summary.includes('LIBRE') || summary.includes('DESCANSO')) {
+                } else if(summary.includes('LIBRE')) {
                     shiftCode = 'L';
-                } else {
-                    // Intentar extraer turno en formato "Turno X (Y)"
-                    const match = currentEvent.summary.match(/Turno .* \(([MTNL]|[A-Z0-9]+)\)/i);
-                    if(match) {
-                        shiftCode = match[1].toUpperCase();
-                    }
                 }
                 
-                // Si detectamos un turno válido, asignarlo
                 if(shiftCode && SHIFT_TYPES[shiftCode]) {
                     state.shiftData[currentEvent.date] = shiftCode;
                     eventsImported++;
                 }
                 
-                // Importar como nota si tiene descripción O si no es turno
                 if(currentEvent.description || !shiftCode) {
-                    const title = currentEvent.summary.substring(0, 50);
-                    const description = currentEvent.description || '';
-                    
                     state.notes[currentEvent.date] = {
-                        title: title,
-                        description: description,
-                        text: title
+                        title: currentEvent.summary.substring(0, 50),
+                        description: currentEvent.description || '',
+                        text: currentEvent.summary
                     };
                     notesImported++;
                 }
             }
             currentEvent = null;
         } else if(currentEvent) {
-            // Extraer fecha de diferentes formatos
             if(line.startsWith('DTSTART')) {
-                // Formato con timezone: DTSTART;TZID=Europe/Madrid:20250212T070000
                 const dateMatch = line.match(/(\d{4})(\d{2})(\d{2})/);
                 if(dateMatch) {
                     currentEvent.date = dateMatch[1] + '-' + dateMatch[2] + '-' + dateMatch[3];
@@ -887,11 +1141,10 @@ function parseICSAndImport(icsContent) {
     if(eventsImported > 0 || notesImported > 0) {
         showToast('¡Importados: ' + message + '!');
     } else {
-        showToast('No se encontraron eventos de turno');
+        showToast('No se encontraron eventos');
     }
 }
 
-// Cargar tema guardado
 const saved = localStorage.getItem('theme');
 if(saved==='light') document.body.classList.add('light-mode');
 
@@ -899,22 +1152,17 @@ function setupSwipeGestures() {
     const calendarArea = document.getElementById('mainCalendarArea');
     const calendarGrid = document.getElementById('calendarGrid');
     let startX = 0;
-    let startY = 0;
     let isDragging = false;
     
     calendarArea.addEventListener('touchstart', function(e) {
         if(state.isEditMode) return;
         startX = e.touches[0].clientX;
-        startY = e.touches[0].clientY;
         isDragging = true;
     }, {passive: true});
     
     calendarArea.addEventListener('touchmove', function(e) {
         if(!isDragging || state.isEditMode) return;
-        
-        const currentX = e.touches[0].clientX;
-        const diffX = startX - currentX;
-        
+        const diffX = startX - e.touches[0].clientX;
         if(Math.abs(diffX) > 20) {
             calendarGrid.classList.add('swipe-transition');
         }
@@ -925,14 +1173,11 @@ function setupSwipeGestures() {
         isDragging = false;
         
         const endX = e.changedTouches[0].clientX;
-        const endY = e.changedTouches[0].clientY;
-        
         const diffX = startX - endX;
-        const diffY = startY - endY;
         
         calendarGrid.classList.remove('swipe-transition');
         
-        if(Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 60) {
+        if(Math.abs(diffX) > 60) {
             if(diffX > 0) {
                 state.currentDate.setMonth(state.currentDate.getMonth() + 1);
             } else {
@@ -948,7 +1193,8 @@ function showCyclesManager() {
     m.id = 'cyclesModal';
     m.className = 'modal-overlay visible';
     
-    let html = '<div class="modal-content" style="max-width:600px;max-height:80vh;overflow-y:auto;"><h3 class="text-xl font-bold mb-4"><i class="fas fa-sync"></i> Mis Ciclos de Turno</h3>';
+    let html = '<div class="modal-content" style="max-width:600px;max-height:80vh;overflow-y:auto;">';
+    html += '<h3 class="text-xl font-bold mb-4"><i class="fas fa-sync"></i> Mis Ciclos de Turno</h3>';
     
     if(state.cycles.length === 0) {
         html += '<p class="text-center mb-4" style="color:var(--text-secondary)">No tienes ciclos guardados</p>';
@@ -957,9 +1203,11 @@ function showCyclesManager() {
             html += '<div class="mb-3 p-3 rounded-lg" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
             html += '<div class="flex justify-between items-start mb-2">';
             html += '<div><strong>' + cycle.name + '</strong><br><span class="text-xs" style="color:var(--text-secondary)">' + cycle.pattern.length + ' dias</span></div>';
-            html += '<div class="flex gap-1"><button class="btn-icon btn-primary" onclick="applyCycle(' + idx + ')"><i class="fas fa-play"></i></button>';
+            html += '<div class="flex gap-1">';
+            html += '<button class="btn-icon btn-primary" onclick="applyCycle(' + idx + ')"><i class="fas fa-play"></i></button>';
             html += '<button class="btn-icon btn-secondary" onclick="editCycle(' + idx + ')"><i class="fas fa-edit"></i></button>';
-            html += '<button class="btn-icon btn-danger" onclick="deleteCycle(' + idx + ')"><i class="fas fa-trash"></i></button></div></div>';
+            html += '<button class="btn-icon btn-danger" onclick="deleteCycle(' + idx + ')"><i class="fas fa-trash"></i></button>';
+            html += '</div></div>';
             html += '<div class="flex gap-1 flex-wrap">';
             cycle.pattern.forEach(function(s) {
                 if(SHIFT_TYPES[s]) {
@@ -985,23 +1233,25 @@ function createNewCycle() {
     m.id = 'createCycleModal';
     m.className = 'modal-overlay visible';
     
-    let html = '<div class="modal-content" style="max-width:500px"><h3 class="text-lg font-bold mb-3">Crear Ciclo</h3>';
+    let html = '<div class="modal-content" style="max-width:500px">';
+    html += '<h3 class="text-lg font-bold mb-3">Crear Ciclo</h3>';
     html += '<label class="block mb-2 text-sm font-bold">Nombre del ciclo:</label>';
     html += '<input type="text" id="cycleName" class="form-input w-full mb-3" placeholder="Ej: Turno 6x6">';
-    html += '<label class="block mb-2 text-sm font-bold">Construye tu secuencia:</label>';
+    html += '<label class="block mb-2 text-sm font-bold">Secuencia:</label>';
     html += '<div class="flex gap-2 mb-3 flex-wrap">';
     Object.entries(SHIFT_TYPES).forEach(function(e) {
         html += '<button class="btn" style="background:' + e[1].color + ';color:#000" onclick="addToCycle(\'' + e[0] + '\')">' + e[0] + '</button>';
     });
     html += '<button class="btn btn-danger" onclick="removeLastFromCycle()"><i class="fas fa-backspace"></i></button>';
     html += '</div>';
-    html += '<div id="cyclePreview" class="p-3 rounded-lg mb-3 min-h-[60px]" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
+    html += '<div id="cyclePreview" class="p-3 rounded-lg mb-3" style="background:var(--bg-tertiary)">';
     html += '<div class="text-xs mb-1" style="color:var(--text-secondary)">Secuencia (0 dias):</div>';
     html += '<div id="cyclePatternDisplay" class="flex gap-1 flex-wrap"></div>';
     html += '</div>';
-    html += '<div class="flex gap-2"><button class="btn btn-primary flex-1" onclick="saveCycle()"><i class="fas fa-save"></i> Guardar</button>';
-    html += '<button class="btn btn-secondary flex-1" onclick="cancelCycleCreation()">Cancelar</button></div>';
-    html += '</div>';
+    html += '<div class="modal-actions">';
+    html += '<button class="btn btn-primary" onclick="saveCycle()"><i class="fas fa-save"></i> Guardar</button>';
+    html += '<button class="btn btn-secondary" onclick="cancelCycleCreation()">Cancelar</button>';
+    html += '</div></div>';
     
     m.innerHTML = html;
     document.body.appendChild(m);
@@ -1041,7 +1291,7 @@ function updateCyclePreview() {
 function saveCycle() {
     const name = document.getElementById('cycleName').value.trim();
     if(!name) { alert('Pon un nombre al ciclo'); return; }
-    if(state.cycleBuilder.length === 0) { alert('Anade turnos a la secuencia'); return; }
+    if(state.cycleBuilder.length === 0) { alert('Añade turnos'); return; }
     
     state.cycles.push({
         name: name,
@@ -1067,7 +1317,8 @@ function editCycle(idx) {
     m.id = 'editCycleModal';
     m.className = 'modal-overlay visible';
     
-    let html = '<div class="modal-content" style="max-width:500px"><h3 class="text-lg font-bold mb-3">Editar Ciclo</h3>';
+    let html = '<div class="modal-content" style="max-width:500px">';
+    html += '<h3 class="text-lg font-bold mb-3">Editar Ciclo</h3>';
     html += '<label class="block mb-2 text-sm font-bold">Nombre:</label>';
     html += '<input type="text" id="cycleName" class="form-input w-full mb-3" value="' + cycle.name + '">';
     html += '<label class="block mb-2 text-sm font-bold">Secuencia:</label>';
@@ -1077,12 +1328,13 @@ function editCycle(idx) {
     });
     html += '<button class="btn btn-danger" onclick="removeLastFromCycle()"><i class="fas fa-backspace"></i></button>';
     html += '</div>';
-    html += '<div id="cyclePreview" class="p-3 rounded-lg mb-3 min-h-[60px]" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
+    html += '<div id="cyclePreview" class="p-3 rounded-lg mb-3" style="background:var(--bg-tertiary)">';
     html += '<div class="text-xs mb-1" style="color:var(--text-secondary)">Secuencia:</div>';
     html += '<div id="cyclePatternDisplay" class="flex gap-1 flex-wrap"></div></div>';
-    html += '<div class="flex gap-2"><button class="btn btn-primary flex-1" onclick="updateCycle(' + idx + ')"><i class="fas fa-save"></i> Guardar</button>';
-    html += '<button class="btn btn-secondary flex-1" onclick="closeModal(\'editCycleModal\');showCyclesManager()">Cancelar</button></div>';
-    html += '</div>';
+    html += '<div class="modal-actions">';
+    html += '<button class="btn btn-primary" onclick="updateCycle(' + idx + ')"><i class="fas fa-save"></i> Guardar</button>';
+    html += '<button class="btn btn-secondary" onclick="closeModal(\'editCycleModal\');showCyclesManager()">Cancelar</button>';
+    html += '</div></div>';
     
     m.innerHTML = html;
     document.body.appendChild(m);
@@ -1123,10 +1375,11 @@ function applyCycle(idx) {
     m.className = 'modal-overlay visible';
     
     const today = new Date();
-    const todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+    const todayStr = formatDate(today);
     
-    let html = '<div class="modal-content" style="max-width:500px"><h3 class="text-lg font-bold mb-3">Aplicar Ciclo: ' + cycle.name + '</h3>';
-    html += '<div class="mb-3 p-3 rounded-lg" style="background:var(--bg-tertiary)"><div class="text-xs mb-2" style="color:var(--text-secondary)">Secuencia (' + cycle.pattern.length + ' dias):</div>';
+    let html = '<div class="modal-content" style="max-width:500px">';
+    html += '<h3 class="text-lg font-bold mb-3">Aplicar: ' + cycle.name + '</h3>';
+    html += '<div class="mb-3 p-3 rounded-lg" style="background:var(--bg-tertiary)">';
     html += '<div class="flex gap-1 flex-wrap">';
     cycle.pattern.forEach(function(s) {
         if(SHIFT_TYPES[s]) {
@@ -1134,7 +1387,7 @@ function applyCycle(idx) {
         }
     });
     html += '</div></div>';
-    html += '<label class="block mb-2 text-sm font-bold">Dia de inicio:</label>';
+    html += '<label class="block mb-2 text-sm font-bold">Día de inicio:</label>';
     html += '<input type="date" id="cycleStartDate" class="form-input w-full mb-3" value="' + todayStr + '">';
     html += '<label class="block mb-2 text-sm font-bold">Aplicar hasta:</label>';
     html += '<select id="cycleEndType" class="form-select w-full mb-3">';
@@ -1144,9 +1397,10 @@ function applyCycle(idx) {
     html += '<option value="custom">Fecha personalizada</option>';
     html += '</select>';
     html += '<input type="date" id="cycleEndDate" class="form-input w-full mb-3 hidden">';
-    html += '<div class="flex gap-2"><button class="btn btn-primary flex-1" onclick="confirmApplyCycle(' + idx + ')"><i class="fas fa-check"></i> Aplicar</button>';
-    html += '<button class="btn btn-secondary flex-1" onclick="closeModal(\'applyCycleModal\');showCyclesManager()">Cancelar</button></div>';
-    html += '</div>';
+    html += '<div class="modal-actions">';
+    html += '<button class="btn btn-primary" onclick="confirmApplyCycle(' + idx + ')"><i class="fas fa-check"></i> Aplicar</button>';
+    html += '<button class="btn btn-secondary" onclick="closeModal(\'applyCycleModal\');showCyclesManager()">Cancelar</button>';
+    html += '</div></div>';
     
     m.innerHTML = html;
     document.body.appendChild(m);
@@ -1190,24 +1444,12 @@ function confirmApplyCycle(idx) {
     saveData();
     renderCalendar();
     closeModal('applyCycleModal');
-    showToast('Ciclo aplicado correctamente');
+    showToast('Ciclo aplicado');
 }
 
 function closeModal(id) {
     const m = document.getElementById(id);
     if(m) document.body.removeChild(m);
-}
-
-function updateCalendarSelector() {
-    const sel = document.getElementById('calendarSelector');
-    sel.innerHTML = '';
-    Object.entries(state.calendars).forEach(function(e) {
-        const opt = document.createElement('option');
-        opt.value = e[0];
-        opt.textContent = e[1].name;
-        if(e[0] === state.activeCalendar) opt.selected = true;
-        sel.appendChild(opt);
-    });
 }
 
 function showToast(msg) {
@@ -1226,28 +1468,19 @@ function showHelp() {
     m.className = 'modal-overlay visible';
     
     let html = '<div class="modal-content" style="max-width:600px;max-height:80vh;overflow-y:auto">';
-    html += '<h3 class="text-xl font-bold mb-4"><i class="fas fa-question-circle"></i> Como usar el Calendario</h3>';
+    html += '<h3 class="text-xl font-bold mb-4"><i class="fas fa-question-circle"></i> Como usar</h3>';
     
-    html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-edit" style="color:var(--accent-primary)"></i> Editar Turnos</h4>';
-    html += '<p class="text-sm mb-2">1. Pulsa el boton verde <i class="fas fa-edit"></i> (abajo derecha)</p>';
-    html += '<p class="text-sm mb-2">2. Selecciona un turno (M, T, N, L o personalizados)</p>';
-    html += '<p class="text-sm">3. Haz click en los dias para asignar el turno</p></div>';
+    html += '<div class="mb-4"><h4 class="font-bold mb-2"><i class="fas fa-edit" style="color:var(--accent-primary)"></i> Editar Turnos</h4>';
+    html += '<p class="text-sm mb-2">1. Pulsa el botón verde (abajo derecha)</p>';
+    html += '<p class="text-sm mb-2">2. Selecciona un turno</p>';
+    html += '<p class="text-sm">3. Haz click en los días</p></div>';
     
-    html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-palette" style="color:var(--accent-primary)"></i> Turnos Personalizados</h4>';
-    html += '<p class="text-sm mb-2">Crea tus propios turnos con letra, nombre, color y horas:</p>';
-    html += '<p class="text-sm mb-2">1. Menu → "Mis Turnos"</p>';
-    html += '<p class="text-sm mb-2">2. "Crear Nuevo Turno"</p>';
-    html += '<p class="text-sm">3. Define codigo (G, F, M12...), nombre, color y duracion</p></div>';
+    html += '<div class="mb-4"><h4 class="font-bold mb-2"><i class="fas fa-calendar-check" style="color:#f59e0b"></i> Tareas/Eventos</h4>';
+    html += '<p class="text-sm mb-2">Añade eventos que aparecen como píldoras sobre los días</p>';
+    html += '<p class="text-sm">Activa el modo edición y selecciona una tarea</p></div>';
     
-    html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-sync" style="color:var(--accent-primary)"></i> Ciclos de Turno</h4>';
-    html += '<p class="text-sm mb-2">Para turnos que se repiten:</p>';
-    html += '<p class="text-sm mb-2">1. Menu → "Mis Ciclos"</p>';
-    html += '<p class="text-sm mb-2">2. "Crear Nuevo Ciclo"</p>';
-    html += '<p class="text-sm mb-2">3. Construye tu secuencia con cualquier turno</p>';
-    html += '<p class="text-sm">4. Aplica el ciclo con fecha de inicio y duracion</p></div>';
-    
-    html += '<div class="mb-4"><h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-sticky-note" style="color:var(--accent-primary)"></i> Notas</h4>';
-    html += '<p class="text-sm">Haz doble-click en cualquier dia para anadir una nota</p></div>';
+    html += '<div class="mb-4"><h4 class="font-bold mb-2"><i class="fas fa-sticky-note" style="color:var(--accent-primary)"></i> Notas</h4>';
+    html += '<p class="text-sm">Doble-click en cualquier día para añadir una nota</p></div>';
     
     html += '<button class="btn btn-primary w-full" onclick="closeModal(\'helpModal\')">Entendido</button>';
     html += '</div>';
@@ -1257,38 +1490,28 @@ function showHelp() {
     m.onclick = function(e) { if(e.target === m) closeModal('helpModal'); };
 }
 
-// ============================================
-// FUNCIONES PRO - NUEVAS
-// ============================================
-
 function showStatistics() {
     const year = state.currentDate.getFullYear();
     const month = state.currentDate.getMonth();
     
-    // Contar turnos del mes actual
     const stats = {};
     Object.keys(SHIFT_TYPES).forEach(function(key) {
         stats[key] = 0;
     });
     
     Object.entries(state.shiftData).forEach(function(entry) {
-        const dateStr = entry[0];
-        const shift = entry[1];
-        const d = new Date(dateStr);
+        const d = new Date(entry[0]);
         if(d.getFullYear() === year && d.getMonth() === month) {
-            if(stats[shift] !== undefined) {
-                stats[shift]++;
+            if(stats[entry[1]] !== undefined) {
+                stats[entry[1]]++;
             }
         }
     });
     
-    // Calcular horas totales
     let totalHours = 0;
     Object.entries(stats).forEach(function(entry) {
-        const shiftType = entry[0];
-        const count = entry[1];
-        if(SHIFT_TYPES[shiftType]) {
-            totalHours += count * SHIFT_TYPES[shiftType].hours;
+        if(SHIFT_TYPES[entry[0]]) {
+            totalHours += entry[1] * SHIFT_TYPES[entry[0]].hours;
         }
     });
     
@@ -1297,55 +1520,48 @@ function showStatistics() {
     m.className = 'modal-overlay visible';
     
     let html = '<div class="modal-content" style="max-width:600px;max-height:85vh;overflow-y:auto">';
-    html += '<h3 class="text-xl font-bold mb-4"><i class="fas fa-chart-pie"></i> Estadísticas del Mes</h3>';
+    html += '<h3 class="text-xl font-bold mb-4"><i class="fas fa-chart-pie"></i> Estadísticas</h3>';
     html += '<p class="text-sm mb-4" style="color:var(--text-secondary)">' + MONTH_NAMES[month] + ' ' + year + '</p>';
     
-    html += '<div class="mb-4 p-3 rounded-lg" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
+    html += '<div class="mb-4 p-3 rounded-lg" style="background:var(--bg-tertiary)">';
     html += '<div class="text-2xl font-bold text-center mb-2">' + totalHours + ' horas</div>';
-    html += '<div class="text-xs text-center" style="color:var(--text-secondary)">Total trabajadas este mes</div>';
+    html += '<div class="text-xs text-center" style="color:var(--text-secondary)">Total trabajadas</div>';
     html += '</div>';
     
     html += '<div class="mb-4">';
     Object.entries(stats).forEach(function(entry) {
-        const shiftType = entry[0];
-        const count = entry[1];
-        if(SHIFT_TYPES[shiftType] && count > 0) {
-            const hours = count * SHIFT_TYPES[shiftType].hours;
+        if(SHIFT_TYPES[entry[0]] && entry[1] > 0) {
+            const hours = entry[1] * SHIFT_TYPES[entry[0]].hours;
             html += '<div class="flex items-center justify-between mb-2 p-2 rounded" style="background:var(--bg-tertiary)">';
             html += '<div class="flex items-center gap-2">';
-            html += '<span class="px-2 py-1 rounded font-bold text-sm" style="background:' + SHIFT_TYPES[shiftType].color + ';color:#000">' + shiftType + '</span>';
-            html += '<span class="text-sm">' + SHIFT_TYPES[shiftType].label + '</span>';
+            html += '<span class="px-2 py-1 rounded font-bold text-sm" style="background:' + SHIFT_TYPES[entry[0]].color + ';color:#000">' + entry[0] + '</span>';
+            html += '<span class="text-sm">' + SHIFT_TYPES[entry[0]].label + '</span>';
             html += '</div>';
             html += '<div class="text-right">';
-            html += '<div class="font-bold">' + count + ' días</div>';
+            html += '<div class="font-bold">' + entry[1] + ' días</div>';
             html += '<div class="text-xs" style="color:var(--text-secondary)">' + hours + ' h</div>';
-            html += '</div>';
-            html += '</div>';
+            html += '</div></div>';
         }
     });
     html += '</div>';
     
     html += '<canvas id="statsChart" width="400" height="300" class="mb-4"></canvas>';
-    
     html += '<button class="btn btn-secondary w-full" onclick="closeModal(\'statsModal\')">Cerrar</button>';
     html += '</div>';
     
     m.innerHTML = html;
     document.body.appendChild(m);
     
-    // Crear gráfico con Chart.js
     const ctx = document.getElementById('statsChart').getContext('2d');
     const labels = [];
     const data = [];
     const colors = [];
     
     Object.entries(stats).forEach(function(entry) {
-        const shiftType = entry[0];
-        const count = entry[1];
-        if(SHIFT_TYPES[shiftType] && count > 0) {
-            labels.push(SHIFT_TYPES[shiftType].label);
-            data.push(count);
-            colors.push(SHIFT_TYPES[shiftType].color);
+        if(SHIFT_TYPES[entry[0]] && entry[1] > 0) {
+            labels.push(SHIFT_TYPES[entry[0]].label);
+            data.push(entry[1]);
+            colors.push(SHIFT_TYPES[entry[0]].color);
         }
     });
     
@@ -1367,9 +1583,7 @@ function showStatistics() {
                     position: 'bottom',
                     labels: {
                         color: '#ffffff',
-                        font: {
-                            size: 12
-                        }
+                        font: { size: 12 }
                     }
                 }
             }
@@ -1379,70 +1593,28 @@ function showStatistics() {
     m.onclick = function(e) { if(e.target === m) closeModal('statsModal'); };
 }
 
-function exportAsImage() {
-    showToast('Generando imagen...');
-    
-    const captureArea = document.getElementById('mainCaptureArea');
-    
-    html2canvas(captureArea, {
-        backgroundColor: '#0a0a0a',
-        scale: 2,
-        logging: false,
-        useCORS: true
-    }).then(function(canvas) {
-        const link = document.createElement('a');
-        const year = state.currentDate.getFullYear();
-        const month = String(state.currentDate.getMonth() + 1).padStart(2, '0');
-        link.download = 'calendario-guardia-' + year + '-' + month + '.png';
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-        showToast('¡Imagen descargada!');
-    }).catch(function(error) {
-        console.error('Error al generar imagen:', error);
-        showToast('Error al generar imagen');
-    });
-}
-
 function exportToICS() {
     let icsContent = 'BEGIN:VCALENDAR\n';
     icsContent += 'VERSION:2.0\n';
-    icsContent += 'PRODID:-//GUARD-IA//Calendario de Turnos//ES\n';
-    icsContent += 'CALSCALE:GREGORIAN\n';
-    icsContent += 'METHOD:PUBLISH\n';
+    icsContent += 'PRODID:-//GUARD-IA//Calendario//ES\n';
     icsContent += 'X-WR-CALNAME:Turnos GUARD-IA\n';
-    icsContent += 'X-WR-TIMEZONE:Europe/Madrid\n';
     
     Object.entries(state.shiftData).forEach(function(entry) {
-        const dateStr = entry[0];
-        const shift = entry[1];
-        
-        if(SHIFT_TYPES[shift]) {
-            const date = new Date(dateStr + 'T00:00:00');
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            const dateFormatted = year + month + day;
+        if(SHIFT_TYPES[entry[1]]) {
+            const date = new Date(entry[0] + 'T00:00:00');
+            const dateFormatted = date.getFullYear() + String(date.getMonth() + 1).padStart(2, '0') + String(date.getDate()).padStart(2, '0');
             
             icsContent += 'BEGIN:VEVENT\n';
-            icsContent += 'UID:' + dateStr + '-' + shift + '@guardia-calendar\n';
-            icsContent += 'DTSTAMP:' + dateFormatted + 'T000000Z\n';
+            icsContent += 'UID:' + entry[0] + '@guardia\n';
             icsContent += 'DTSTART;VALUE=DATE:' + dateFormatted + '\n';
-            icsContent += 'DTEND;VALUE=DATE:' + dateFormatted + '\n';
-            icsContent += 'SUMMARY:Turno ' + SHIFT_TYPES[shift].label + ' (' + shift + ')\n';
-            icsContent += 'DESCRIPTION:' + SHIFT_TYPES[shift].label + ' - ' + SHIFT_TYPES[shift].hours + ' horas\n';
-            
-            if(state.notes[dateStr]) {
-                icsContent += 'DESCRIPTION:' + state.notes[dateStr] + '\n';
-            }
-            
-            icsContent += 'STATUS:CONFIRMED\n';
+            icsContent += 'SUMMARY:Turno ' + SHIFT_TYPES[entry[1]].label + '\n';
             icsContent += 'END:VEVENT\n';
         }
     });
     
     icsContent += 'END:VCALENDAR';
     
-    const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+    const blob = new Blob([icsContent], { type: 'text/calendar' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
     link.download = 'turnos-guardia.ics';
@@ -1451,35 +1623,19 @@ function exportToICS() {
     showToast('Archivo .ICS descargado');
 }
 
-// ============================================
-// FUNCIONES DE NOTIFICACIONES
-// ============================================
-
 function scheduleNotification(dateStr, date, title, description, reminderType, reminderTime) {
-    // Verificar si las notificaciones están disponibles
-    if (!('Notification' in window)) {
-        console.warn('Notificaciones no soportadas');
-        return;
-    }
+    if (!('Notification' in window)) return;
     
     if (Notification.permission !== 'granted') {
-        Notification.requestPermission().then((permission) => {
-            if (permission === 'granted') {
-                scheduleNotification(dateStr, date, title, description, reminderType, reminderTime);
-            } else {
-                console.warn('Permisos de notificación denegados');
-            }
-        });
+        Notification.requestPermission();
         return;
     }
     
     try {
-        // Calcular momento de la notificación
         const targetDate = new Date(date);
         const [hours, minutes] = reminderTime.split(':');
         targetDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
         
-        // Ajustar según tipo de recordatorio
         switch(reminderType) {
             case '1day':
                 targetDate.setDate(targetDate.getDate() - 1);
@@ -1493,14 +1649,12 @@ function scheduleNotification(dateStr, date, title, description, reminderType, r
         }
         
         const triggerTime = targetDate.getTime();
-        const now = Date.now();
         
-        if (triggerTime <= now) {
+        if (triggerTime <= Date.now()) {
             showToast('La hora del recordatorio ya pasó');
             return;
         }
         
-        // Guardar en IndexedDB
         const notificationData = {
             id: 'notif-' + dateStr,
             dateStr: dateStr,
@@ -1513,7 +1667,6 @@ function scheduleNotification(dateStr, date, title, description, reminderType, r
         
         saveNotificationToIndexedDB(notificationData);
         
-        // Avisar al Service Worker si está disponible
         if (navigator.serviceWorker && navigator.serviceWorker.controller) {
             navigator.serviceWorker.controller.postMessage({
                 type: 'CHECK_NOTIFICATIONS'
@@ -1522,33 +1675,24 @@ function scheduleNotification(dateStr, date, title, description, reminderType, r
         
         showToast('¡Recordatorio programado!');
     } catch(error) {
-        console.error('Error programando notificación:', error);
-        showToast('Error al programar recordatorio');
+        console.error('Error:', error);
     }
 }
 
 function cancelNotification(dateStr) {
     try {
         const notifId = 'notif-' + dateStr;
-        
         const request = indexedDB.open('GuardiaNotifications', 1);
         
         request.onsuccess = (event) => {
             const db = event.target.result;
-            
-            if (!db.objectStoreNames.contains('notifications')) return;
-            
-            const transaction = db.transaction(['notifications'], 'readwrite');
-            const store = transaction.objectStore('notifications');
-            store.delete(notifId);
+            if (db.objectStoreNames.contains('notifications')) {
+                const transaction = db.transaction(['notifications'], 'readwrite');
+                const store = transaction.objectStore('notifications');
+                store.delete(notifId);
+            }
         };
-        
-        request.onerror = () => {
-            console.warn('Error cancelando notificación');
-        };
-    } catch(error) {
-        console.warn('Error en cancelNotification:', error);
-    }
+    } catch(error) {}
 }
 
 function saveNotificationToIndexedDB(notificationData) {
@@ -1568,11 +1712,5 @@ function saveNotificationToIndexedDB(notificationData) {
             const store = transaction.objectStore('notifications');
             store.put(notificationData);
         };
-        
-        request.onerror = () => {
-            console.error('Error guardando notificación en IndexedDB');
-        };
-    } catch(error) {
-        console.error('Error en saveNotificationToIndexedDB:', error);
-    }
+    } catch(error) {}
 }
