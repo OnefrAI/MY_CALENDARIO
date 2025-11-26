@@ -148,25 +148,10 @@ function renderNotesHistory() {
         const note = entry[1];
         const d = new Date(dateStr);
         if(d.getFullYear() === year && d.getMonth() === month) {
-            let title = '';
-            let description = '';
-            let tag = null;
-            
-            if(typeof note === 'object') {
-                title = note.title || '';
-                description = note.description || note.text || '';
-                tag = note.tag || null;
-            } else if(typeof note === 'string') {
-                title = note;
-                description = note;
-            }
-            
             monthNotes.push({
                 date: d, 
                 dateStr: dateStr, 
-                title: title,
-                description: description,
-                tag: tag
+                data: note 
             });
         }
     });
@@ -186,27 +171,66 @@ function renderNotesHistory() {
         const dayNum = item.date.getDate();
         const dayName = ['Dom','Lun','Mar','Mie','Jue','Vie','Sab'][item.date.getDay()];
         const shift = state.shiftData[item.dateStr];
+        const note = item.data;
         
         html += '<div class="note-item" onclick="showNoteFromHistory(\'' + item.dateStr + '\')">';
+        
+        // FECHA
         html += '<div class="note-date">';
         html += '<div class="note-day-badge">' + dayNum + '</div>';
         html += '<div class="note-day-name">' + dayName + '</div>';
         if(shift && SHIFT_TYPES[shift]) {
             html += '<span class="note-shift-badge" style="background:' + SHIFT_TYPES[shift].color + ';color:#000">' + shift + '</span>';
         }
-        html += '</div>';
+        html += '</div>'; 
+        
+        // CONTENIDO
         html += '<div class="note-text-container">';
         
-        if(item.tag) {
-             html += '<span style="font-size:0.7rem;font-weight:bold;color:' + item.tag.color + ';border:1px solid ' + item.tag.color + ';padding:0 4px;border-radius:4px;margin-right:5px">' + item.tag.text + '</span>';
+        // --- AQUÍ ESTÁ EL CAMBIO: Lógica inteligente para el texto de la píldora ---
+        if(note.tag) {
+            let tagText = note.tag.text; // Texto por defecto
+
+            // Caso 1: Horas Extra -> "EXTRA (2h)"
+            if (note.tag.text === "HORAS EXTRA" && note.tag.hours) {
+                tagText = "EXTRA (" + note.tag.hours + "h)";
+            }
+            // Caso 2: Juicio -> "JUICIO 09:00"
+            else if (note.tag.text === "JUICIO" && note.tag.details && note.tag.details.hora) {
+                tagText = "JUICIO " + note.tag.details.hora;
+            }
+
+            // Renderizar la píldora con el texto calculado
+            html += '<span style="font-size:0.7rem;font-weight:bold;color:' + note.tag.color + ';border:1px solid ' + note.tag.color + ';padding:0 4px;border-radius:4px;margin-right:5px; display:inline-block; margin-bottom:2px">' + tagText + '</span>';
+        }
+        // -------------------------------------------------------------------------
+
+        // Título y descripción
+        // Si es juicio, usamos un título especial si no hay uno manual
+        let displayTitle = note.title;
+        if(note.tag && note.tag.text === 'JUICIO' && (!displayTitle || displayTitle === 'Juicio')) {
+             // Si quieres que ponga detalles extra aquí puedes añadirlos, pero por ahora mantenemos el título limpio
+             displayTitle = displayTitle || 'Juicio';
         }
 
-        html += '<div class="note-title" style="display:inline-block">' + (item.title || 'Nota') + '</div>';
-        if(item.description && item.description !== item.title) {
-            html += '<div class="note-preview">' + item.description.substring(0, 60) + '...</div>';
+        if(displayTitle) html += '<div class="note-title" style="display:inline-block">' + displayTitle + '</div>';
+        
+        // Si hay descripción o notas de juicio, mostrar un poco
+        let previewText = "";
+        if (note.tag && note.tag.text === 'JUICIO' && note.tag.details) {
+             // Priorizamos mostrar el juzgado en la previsualización si es un juicio
+             if(note.tag.details.juzgado) previewText += "🏛️ " + note.tag.details.juzgado + " ";
+             if(note.tag.details.notas) previewText += note.tag.details.notas;
+        } else if(note.description && note.description !== note.title) {
+             previewText = note.description;
         }
-        html += '</div>';
-        html += '</div>';
+
+        if(previewText) {
+            html += '<div class="note-preview">' + previewText.substring(0, 60) + (previewText.length>60?'...':'') + '</div>';
+        }
+        
+        html += '</div>'; // Cierre note-text-container
+        html += '</div>'; // Cierre note-item
     });
     
     container.innerHTML = html;
@@ -259,7 +283,6 @@ function createCell(date, num, isCurr, today) {
                 tagDiv.textContent = "EXTRA (" + noteData.tag.hours + "h)";
             } 
             else if(noteData.tag.text === "JUICIO" && noteData.tag.details && noteData.tag.details.hora) {
-                // Mostrar JUICIO + HORA
                 tagDiv.textContent = "JUICIO " + noteData.tag.details.hora;
             }
             else {
@@ -283,26 +306,29 @@ function createCell(date, num, isCurr, today) {
             textContent = noteData.text;
         }
         
-        // Solo añadir la caja de texto si tiene contenido real
+        // Solo añadir si hay contenido
         if(textContent && textContent.trim() !== '') {
             noteDiv.textContent = textContent;
             cell.appendChild(noteDiv);
         }
     }
     
+    // LÓGICA DE CLICK UNIFICADA (ESTO ES LO NUEVO)
     if(isCurr) {
-        cell.ondblclick = function() { showNote(dateStr, date); };
-        
-        if(state.isEditMode) {
-            cell.style.cursor = 'pointer';
-            cell.onclick = function() {
+        cell.onclick = function() {
+            // Si estamos en modo EDICIÓN (botón lápiz activo) -> PINTAMOS
+            if(state.isEditMode) {
                 if(state.selectedShiftType) {
                     setShift(dateStr, state.selectedShiftType);
                 } else {
                     showToast('Selecciona un turno primero');
                 }
-            };
-        }
+            } 
+            // Si estamos en modo NORMAL (sin lápiz) -> ABRIMOS NOTA CON 1 CLIC
+            else {
+                showNote(dateStr, date);
+            }
+        };
     }
     
     return cell;
