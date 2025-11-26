@@ -9,19 +9,10 @@ const MONTH_NAMES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','A
 const DEFAULT_SHIFT_TYPES = {'M':{label:'Mañana',color:'#00ff88',hours:8},'T':{label:'Tarde',color:'#ff9500',hours:8},'N':{label:'Noche',color:'#5e5ce6',hours:8},'L':{label:'Libre',color:'#64d2ff',hours:0}};
 let SHIFT_TYPES = {...DEFAULT_SHIFT_TYPES};
 
-// Tipos de tareas por defecto (reducido a 3)
-const DEFAULT_TASKS = {
-    'JUICIO': { label: 'Juicio', color: '#ef4444' },
-    'CURSO': { label: 'Curso', color: '#f59e0b' },
-    'EXTRA': { label: 'Hora Extra', color: '#8b5cf6', hasHours: true }
-};
-let TASK_TYPES = {...DEFAULT_TASKS};
-
-// Estado global actualizado con tareas
+// Estado global limpio (Sin tareas antiguas)
 const state = {
     currentDate: new Date(),
     selectedShiftType: null,
-    selectedTaskType: null,
     shiftData: {},
     notes: {},
     cycles: [],
@@ -30,8 +21,7 @@ const state = {
             name: 'Mi Calendario',
             shifts: {},
             notes: {},
-            tasks: {},  // Ahora será: { "2024-01-01": [{type: "JUICIO"}, {type: "EXTRA", hours: 2}] }
-            extraHours: {}  // Nuevo: almacenar horas extras por mes
+            extraHours: {} 
         }
     },
     activeCalendar: 'default',
@@ -40,19 +30,19 @@ const state = {
     cycleBuilder: [],
     touchStartX: 0,
     touchStartY: 0,
-    customShifts: {},
-    customTasks: {}
+    customShifts: {}
 };
 
 function initCalendar() {
     loadActiveCalendar();
     loadCustomShifts();
-    loadCustomTasks();  // NUEVO
     renderCalendar();
     setupEvents();
     loadData();
-    
-    // Registrar Service Worker para notificaciones
+    setupNotifications();
+}
+
+function setupNotifications() {
     if ('serviceWorker' in navigator) {
         const swPath = window.location.pathname.includes('calendario-del-GUARD-IA') 
             ? '../../sw.js'
@@ -63,16 +53,12 @@ function initCalendar() {
                 console.log('[GUARDIA] Service Worker registrado');
                 if ('Notification' in window && Notification.permission === 'default') {
                     setTimeout(() => {
-                        Notification.requestPermission().then((permission) => {
-                            if (permission === 'granted') {
-                                showToast('¡Notificaciones activadas!');
-                            }
-                        });
+                        Notification.requestPermission();
                     }, 3000);
                 }
             })
             .catch((err) => {
-                console.warn('[GUARDIA] Service Worker no disponible:', err);
+                console.warn('[GUARDIA] SW error:', err);
             });
     }
 }
@@ -81,25 +67,6 @@ function loadActiveCalendar() {
     if(state.calendars[state.activeCalendar]) {
         state.shiftData = state.calendars[state.activeCalendar].shifts || {};
         state.notes = state.calendars[state.activeCalendar].notes || {};
-        
-        // Migrar tareas antiguas al nuevo formato si es necesario
-        if(!state.calendars[state.activeCalendar].tasks) {
-            state.calendars[state.activeCalendar].tasks = {};
-        }
-        
-        // Asegurar que tasks sea un objeto con arrays
-        Object.keys(state.calendars[state.activeCalendar].tasks).forEach(function(dateStr) {
-            const tasks = state.calendars[state.activeCalendar].tasks[dateStr];
-            if(!Array.isArray(tasks)) {
-                // Convertir formato antiguo al nuevo
-                state.calendars[state.activeCalendar].tasks[dateStr] = [{type: tasks}];
-            }
-        });
-        
-        // Inicializar extraHours si no existe
-        if(!state.calendars[state.activeCalendar].extraHours) {
-            state.calendars[state.activeCalendar].extraHours = {};
-        }
     }
 }
 
@@ -113,26 +80,9 @@ function loadCustomShifts() {
     } catch(e) {}
 }
 
-// NUEVO: Cargar tareas personalizadas
-function loadCustomTasks() {
-    try {
-        const saved = localStorage.getItem('guardia_custom_tasks');
-        if(saved) {
-            state.customTasks = JSON.parse(saved);
-            TASK_TYPES = {...DEFAULT_TASKS, ...state.customTasks};
-        }
-    } catch(e) {}
-}
-
 function saveCustomShifts() {
     localStorage.setItem('guardia_custom_shifts', JSON.stringify(state.customShifts));
     SHIFT_TYPES = {...DEFAULT_SHIFT_TYPES, ...state.customShifts};
-}
-
-// NUEVO: Guardar tareas personalizadas
-function saveCustomTasks() {
-    localStorage.setItem('guardia_custom_tasks', JSON.stringify(state.customTasks));
-    TASK_TYPES = {...DEFAULT_TASKS, ...state.customTasks};
 }
 
 function renderCalendar() {
@@ -200,10 +150,12 @@ function renderNotesHistory() {
         if(d.getFullYear() === year && d.getMonth() === month) {
             let title = '';
             let description = '';
+            let tag = null;
             
             if(typeof note === 'object') {
                 title = note.title || '';
                 description = note.description || note.text || '';
+                tag = note.tag || null;
             } else if(typeof note === 'string') {
                 title = note;
                 description = note;
@@ -213,7 +165,8 @@ function renderNotesHistory() {
                 date: d, 
                 dateStr: dateStr, 
                 title: title,
-                description: description
+                description: description,
+                tag: tag
             });
         }
     });
@@ -243,9 +196,14 @@ function renderNotesHistory() {
         }
         html += '</div>';
         html += '<div class="note-text-container">';
-        html += '<div class="note-title">' + (item.title || 'Sin título') + '</div>';
+        
+        if(item.tag) {
+             html += '<span style="font-size:0.7rem;font-weight:bold;color:' + item.tag.color + ';border:1px solid ' + item.tag.color + ';padding:0 4px;border-radius:4px;margin-right:5px">' + item.tag.text + '</span>';
+        }
+
+        html += '<div class="note-title" style="display:inline-block">' + (item.title || 'Nota') + '</div>';
         if(item.description && item.description !== item.title) {
-            html += '<div class="note-preview">' + item.description.substring(0, 80) + (item.description.length > 80 ? '...' : '') + '</div>';
+            html += '<div class="note-preview">' + item.description.substring(0, 60) + '...</div>';
         }
         html += '</div>';
         html += '</div>';
@@ -287,60 +245,49 @@ function createCell(date, num, isCurr, today) {
     dayDiv.textContent = num;
     cell.appendChild(dayDiv);
     
-    // NUEVO: Mostrar múltiples tareas (máximo 2 visibles)
-    const tasksArray = state.calendars[state.activeCalendar].tasks[dateStr];
-    if(tasksArray && Array.isArray(tasksArray) && tasksArray.length > 0) {
-        const taskContainer = document.createElement('div');
-        taskContainer.className = 'task-badge-container';
-        
-        // Mostrar hasta 2 tareas
-        const visibleTasks = tasksArray.slice(0, 2);
-        visibleTasks.forEach(function(taskObj) {
-            const taskCode = taskObj.type;
-            if(TASK_TYPES[taskCode]) {
-                const t = TASK_TYPES[taskCode];
-                const pill = document.createElement('div');
-                pill.className = 'task-pill';
-                pill.style.backgroundColor = t.color;
-                
-                // Si es hora extra y tiene horas, mostrarlas
-                if(taskObj.hours) {
-                    pill.textContent = t.label + ' (' + taskObj.hours + 'h)';
-                } else {
-                    pill.textContent = t.label;
-                }
-                
-                taskContainer.appendChild(pill);
-            }
-        });
-        
-        // Si hay más de 2 tareas, mostrar indicador
-        if(tasksArray.length > 2) {
-            const moreIndicator = document.createElement('div');
-            moreIndicator.className = 'task-pill';
-            moreIndicator.style.backgroundColor = '#666';
-            moreIndicator.style.fontSize = '0.5rem';
-            moreIndicator.textContent = '+' + (tasksArray.length - 2);
-            taskContainer.appendChild(moreIndicator);
-        }
-        
-        cell.appendChild(taskContainer);
-    }
+    // RENDERIZADO DE NOTAS Y ETIQUETAS AVANZADAS
+    const noteData = state.notes[dateStr];
     
-    // Mostrar título de nota si existe
-    if(state.notes[dateStr]) {
+    if(noteData) {
+        // 1. Renderizar Etiqueta (Píldora) si existe
+        if (typeof noteData === 'object' && noteData.tag && noteData.tag.text) {
+            const tagDiv = document.createElement('div');
+            tagDiv.className = 'note-tag-pill';
+            
+            // LÓGICA DE VISUALIZACIÓN AVANZADA
+            if(noteData.tag.text === "HORAS EXTRA" && noteData.tag.hours) {
+                tagDiv.textContent = "EXTRA (" + noteData.tag.hours + "h)";
+            } 
+            else if(noteData.tag.text === "JUICIO" && noteData.tag.details && noteData.tag.details.hora) {
+                // Mostrar JUICIO + HORA
+                tagDiv.textContent = "JUICIO " + noteData.tag.details.hora;
+            }
+            else {
+                tagDiv.textContent = noteData.tag.text;
+            }
+            
+            tagDiv.style.backgroundColor = noteData.tag.color || '#ef4444';
+            cell.appendChild(tagDiv);
+        }
+
+        // 2. Renderizar Contenido de Texto
         const noteDiv = document.createElement('div');
         noteDiv.className = 'note-content';
         
-        if(typeof state.notes[dateStr] === 'object' && state.notes[dateStr].title) {
-            noteDiv.textContent = state.notes[dateStr].title;
-        } else if(typeof state.notes[dateStr] === 'string') {
-            noteDiv.textContent = state.notes[dateStr];
-        } else if(state.notes[dateStr].text) {
-            noteDiv.textContent = state.notes[dateStr].text;
+        let textContent = '';
+        if(typeof noteData === 'object' && noteData.title) {
+            textContent = noteData.title;
+        } else if(typeof noteData === 'string') {
+            textContent = noteData;
+        } else if(noteData.text) {
+            textContent = noteData.text;
         }
         
-        cell.appendChild(noteDiv);
+        // Solo añadir la caja de texto si tiene contenido real
+        if(textContent && textContent.trim() !== '') {
+            noteDiv.textContent = textContent;
+            cell.appendChild(noteDiv);
+        }
     }
     
     if(isCurr) {
@@ -349,13 +296,10 @@ function createCell(date, num, isCurr, today) {
         if(state.isEditMode) {
             cell.style.cursor = 'pointer';
             cell.onclick = function() {
-                // MODIFICADO: Soportar turnos Y tareas
                 if(state.selectedShiftType) {
                     setShift(dateStr, state.selectedShiftType);
-                } else if(state.selectedTaskType) {
-                    setTask(dateStr, state.selectedTaskType);
                 } else {
-                    showToast('Selecciona un turno o tarea primero');
+                    showToast('Selecciona un turno primero');
                 }
             };
         }
@@ -374,153 +318,7 @@ function setShift(dateStr, type) {
     renderCalendar();
 }
 
-// NUEVO: Función para establecer tareas
-function setTask(dateStr, type) {
-    if(type === 'eraseTask') {
-        // Modal para elegir qué tarea borrar
-        const tasksArray = state.calendars[state.activeCalendar].tasks[dateStr];
-        if(!tasksArray || tasksArray.length === 0) {
-            showToast('No hay tareas en este día');
-            return;
-        }
-        
-        if(tasksArray.length === 1) {
-            // Si solo hay una, borrarla directamente
-            delete state.calendars[state.activeCalendar].tasks[dateStr];
-            saveData();
-            renderCalendar();
-            showToast('Tarea eliminada');
-        } else {
-            // Mostrar selector de cuál borrar
-            showTaskDeleteSelector(dateStr, tasksArray);
-        }
-    } else if(type === 'EXTRA' && TASK_TYPES[type].hasHours) {
-        // Modal para pedir horas
-        showExtraHoursModal(dateStr, type);
-    } else {
-        // Añadir tarea normal
-        if(!state.calendars[state.activeCalendar].tasks[dateStr]) {
-            state.calendars[state.activeCalendar].tasks[dateStr] = [];
-        }
-        
-        // Verificar si ya existe esta tarea
-        const exists = state.calendars[state.activeCalendar].tasks[dateStr].some(function(t) {
-            return t.type === type;
-        });
-        
-        if(!exists) {
-            state.calendars[state.activeCalendar].tasks[dateStr].push({type: type});
-            saveData();
-            renderCalendar();
-            showToast('Tarea añadida');
-        } else {
-            showToast('Ya existe esta tarea en el día');
-        }
-    }
-}
-
-function showExtraHoursModal(dateStr, type) {
-    const date = new Date(dateStr);
-    const m = document.createElement('div');
-    m.className = 'modal-overlay visible';
-    
-    m.innerHTML = '<div class="modal-content" style="max-width:400px">' +
-        '<h3 class="text-lg font-bold mb-3">Hora Extra</h3>' +
-        '<p class="text-sm mb-3" style="color:var(--text-secondary)">' + 
-        date.getDate() + '/' + (date.getMonth()+1) + '/' + date.getFullYear() + '</p>' +
-        
-        '<label class="block mb-2 text-sm font-bold">¿Cuántas horas extra?</label>' +
-        '<input type="number" id="extraHoursInput" class="form-input w-full mb-3" placeholder="Ej: 2" min="0.5" max="24" step="0.5" value="1">' +
-        
-        '<div class="modal-actions">' +
-        '<button id="saveExtraHours" class="btn btn-primary"><i class="fas fa-save"></i> Guardar</button>' +
-        '<button id="cancelExtraHours" class="btn btn-secondary">Cancelar</button>' +
-        '</div></div>';
-    
-    document.body.appendChild(m);
-    
-    // Foco en input
-    setTimeout(function() {
-        document.getElementById('extraHoursInput').focus();
-    }, 100);
-    
-    document.getElementById('saveExtraHours').onclick = function() {
-        const hours = parseFloat(document.getElementById('extraHoursInput').value);
-        
-        if(!hours || hours <= 0) {
-            alert('Introduce un número de horas válido');
-            return;
-        }
-        
-        if(!state.calendars[state.activeCalendar].tasks[dateStr]) {
-            state.calendars[state.activeCalendar].tasks[dateStr] = [];
-        }
-        
-        state.calendars[state.activeCalendar].tasks[dateStr].push({
-            type: type,
-            hours: hours
-        });
-        
-        saveData();
-        renderCalendar();
-        document.body.removeChild(m);
-        showToast(hours + ' horas extra añadidas');
-    };
-    
-    document.getElementById('cancelExtraHours').onclick = function() {
-        document.body.removeChild(m);
-    };
-    
-    m.onclick = function(e) {
-        if(e.target === m) document.body.removeChild(m);
-    };
-}
-
-function showTaskDeleteSelector(dateStr, tasksArray) {
-    const date = new Date(dateStr);
-    const m = document.createElement('div');
-    m.className = 'modal-overlay visible';
-    
-    let html = '<div class="modal-content" style="max-width:400px">';
-    html += '<h3 class="text-lg font-bold mb-3">Borrar Tarea</h3>';
-    html += '<p class="text-sm mb-3" style="color:var(--text-secondary)">Selecciona qué tarea borrar:</p>';
-    
-    tasksArray.forEach(function(taskObj, idx) {
-        if(TASK_TYPES[taskObj.type]) {
-            const t = TASK_TYPES[taskObj.type];
-            html += '<button class="btn w-full mb-2" style="background:' + t.color + ';color:#fff" onclick="deleteTaskAtIndex(\'' + dateStr + '\',' + idx + ')">';
-            html += '<i class="fas fa-trash"></i> ' + t.label;
-            if(taskObj.hours) html += ' (' + taskObj.hours + 'h)';
-            html += '</button>';
-        }
-    });
-    
-    html += '<button class="btn btn-secondary w-full mt-2" onclick="closeModal(\'taskDeleteModal\')">Cancelar</button>';
-    html += '</div>';
-    
-    m.id = 'taskDeleteModal';
-    m.innerHTML = html;
-    document.body.appendChild(m);
-    
-    m.onclick = function(e) {
-        if(e.target === m) closeModal('taskDeleteModal');
-    };
-}
-
-function deleteTaskAtIndex(dateStr, idx) {
-    state.calendars[state.activeCalendar].tasks[dateStr].splice(idx, 1);
-    
-    // Si no quedan tareas, eliminar el array
-    if(state.calendars[state.activeCalendar].tasks[dateStr].length === 0) {
-        delete state.calendars[state.activeCalendar].tasks[dateStr];
-    }
-    
-    saveData();
-    renderCalendar();
-    closeModal('taskDeleteModal');
-    showToast('Tarea eliminada');
-}
-
+// ESTA ES LA FUNCIÓN NUEVA Y VITAL PARA LAS NOTAS
 function showNote(dateStr, date) {
     const existing = state.notes[dateStr];
     const existingTitle = existing ? (existing.title || '') : '';
@@ -528,27 +326,89 @@ function showNote(dateStr, date) {
     const existingReminder = existing ? (existing.reminder || 'none') : 'none';
     const existingReminderTime = existing ? (existing.reminderTime || '09:00') : '09:00';
     
+    // Recuperar datos de etiqueta y detalles
+    const tag = (existing && existing.tag) ? existing.tag : null;
+    const savedTagText = tag ? tag.text : '';
+    const savedTagColor = tag ? tag.color : '';
+    const savedHours = (tag && tag.hours) ? tag.hours : '';
+    const d = (tag && tag.details) ? tag.details : { juzgado:'', sala:'', atestadoPol:'', atestadoJud:'', hora:'', notas:'' };
+
+    // Determinar selección
+    let selectedOption = "";
+    if (savedTagText === "JUICIO") selectedOption = "JUICIO";
+    else if (savedTagText === "CURSO") selectedOption = "CURSO";
+    else if (savedTagText === "HORAS EXTRA") selectedOption = "EXTRA";
+    else if (savedTagText !== "") selectedOption = "CUSTOM";
+
     const m = document.createElement('div');
     m.className = 'modal-overlay visible';
-    m.innerHTML = '<div class="modal-content" style="max-width:500px">' +
-        '<h3 class="text-lg font-bold mb-3">Nota: ' + date.getDate() + '/' + (date.getMonth()+1) + '/' + date.getFullYear() + '</h3>' +
+    
+    let html = '<div class="modal-content" style="max-width:500px">' +
+        '<h3 class="text-lg font-bold mb-3">Nota del día ' + date.getDate() + '</h3>' +
         
-        '<label class="block mb-2 text-sm font-bold">Título (visible en calendario):</label>' +
-        '<input type="text" id="noteTitle" class="form-input w-full mb-3" placeholder="Ej: Reunión, Cita médica..." value="' + existingTitle.replace(/"/g, '&quot;') + '" maxlength="50">' +
+        '<div class="mb-4 p-3 rounded-lg" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">' +
+            '<label class="block mb-2 text-sm font-bold">🏷️ Etiqueta rápida:</label>' +
+            '<select id="tagSelector" class="form-select w-full mb-2" style="font-weight:bold">' +
+                '<option value="">-- Nota simple --</option>' +
+                '<option value="JUICIO" style="background:#ef4444;color:#fff" ' + (selectedOption==='JUICIO'?'selected':'') + '>⚖️ JUICIO</option>' +
+                '<option value="CURSO" style="background:#f97316;color:#fff" ' + (selectedOption==='CURSO'?'selected':'') + '>📚 CURSO</option>' +
+                '<option value="EXTRA" style="background:#8b5cf6;color:#fff" ' + (selectedOption==='EXTRA'?'selected':'') + '>⏱️ HORAS EXTRA</option>' +
+                '<option value="CUSTOM" style="background:#22c55e;color:#fff" ' + (selectedOption==='CUSTOM'?'selected':'') + '>✏️ Crear MI tarea...</option>' +
+            '</select>' +
+            
+            // 1. ÁREA JUICIO
+            '<div id="juicioArea" class="' + (selectedOption === 'JUICIO' ? '' : 'hidden') + ' mt-2 p-2 border-t border-gray-600 bg-gray-800 rounded">' +
+                '<div class="grid grid-cols-2 gap-2 mb-2">' +
+                    '<input type="text" id="juzgado" class="form-input text-sm" placeholder="Juzgado" value="' + (d.juzgado || '') + '">' +
+                    '<input type="text" id="sala" class="form-input text-sm" placeholder="Sala" value="' + (d.sala || '') + '">' +
+                '</div>' +
+                '<div class="grid grid-cols-2 gap-2 mb-2">' +
+                    '<input type="text" id="atestadoPol" class="form-input text-sm" placeholder="At. Policial" value="' + (d.atestadoPol || '') + '">' +
+                    '<input type="text" id="atestadoJud" class="form-input text-sm" placeholder="At. Judicial" value="' + (d.atestadoJud || '') + '">' +
+                '</div>' +
+                '<div class="mb-2">' +
+                    '<label class="text-xs font-bold text-gray-400">Hora:</label>' +
+                    '<input type="time" id="horaJuicio" class="form-input w-full" value="' + (d.hora || '09:00') + '">' +
+                '</div>' +
+                '<textarea id="notasJuicio" class="form-input w-full text-sm" rows="2" placeholder="Notas del juicio...">' + (d.notas || '') + '</textarea>' +
+            '</div>' +
+
+            // 2. ÁREA HORAS EXTRA
+            '<div id="extraHoursArea" class="' + (selectedOption === 'EXTRA' ? '' : 'hidden') + ' mt-2 p-2 border-t border-gray-600 bg-gray-800 rounded">' +
+                '<label class="text-sm font-bold block mb-1" style="color:#a78bfa">¿Cuántas horas?</label>' +
+                '<input type="number" id="extraHoursInput" class="form-input" placeholder="Ej: 2.5" step="0.5" min="0" value="' + savedHours + '">' +
+            '</div>' +
+
+            // 3. ÁREA PERSONALIZADA
+            '<div id="customTagArea" class="' + (selectedOption === 'CUSTOM' ? '' : 'hidden') + ' mt-2 p-2 border-t border-gray-600">' +
+                '<label class="text-xs mb-1 block">Nombre y Color:</label>' +
+                '<div class="flex gap-2">' +
+                    '<input type="text" id="customTagText" class="form-input flex-1" placeholder="Ej: Médico" value="' + (selectedOption==='CUSTOM' ? savedTagText : '') + '">' +
+                    '<input type="color" id="customTagColor" class="form-input" style="width:50px;padding:2px" value="' + (savedTagColor || '#22c55e') + '">' +
+                '</div>' +
+            '</div>' +
+        '</div>' +
+
+        // --- CAMPOS GENERALES (TÍTULO Y DESCRIPCIÓN) ---
+        // Se ocultan si es JUICIO
+        '<div id="generalFields" class="' + (selectedOption === 'JUICIO' ? 'hidden' : '') + '">' +
+            '<label class="block mb-2 text-sm font-bold">Título / Nota General:</label>' +
+            '<input type="text" id="noteTitle" class="form-input w-full mb-3" placeholder="Resumen..." value="' + existingTitle.replace(/"/g, '&quot;') + '">' +
+            
+            '<label class="block mb-2 text-sm font-bold">Descripción:</label>' +
+            '<textarea id="noteDescription" class="form-input w-full mb-3" rows="3">' + existingDesc.replace(/</g, '&lt;') + '</textarea>' +
+        '</div>' +
         
-        '<label class="block mb-2 text-sm font-bold">Descripción:</label>' +
-        '<textarea id="noteDescription" class="form-input w-full mb-3" rows="4" placeholder="Detalles adicionales...">' + existingDesc.replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</textarea>' +
-        
-        '<div class="mb-3 p-3 rounded-lg" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">' +
-        '<label class="block mb-2 text-sm font-bold flex items-center gap-2"><i class="fas fa-bell" style="color:var(--accent-primary)"></i> Recordatorio</label>' +
-        '<select id="reminderType" class="form-select w-full mb-2">' +
-        '<option value="none" ' + (existingReminder === 'none' ? 'selected' : '') + '>Sin recordatorio</option>' +
-        '<option value="sameday" ' + (existingReminder === 'sameday' ? 'selected' : '') + '>El mismo día a las:</option>' +
-        '<option value="1day" ' + (existingReminder === '1day' ? 'selected' : '') + '>1 día antes a las:</option>' +
-        '<option value="2days" ' + (existingReminder === '2days' ? 'selected' : '') + '>2 días antes a las:</option>' +
-        '<option value="1week" ' + (existingReminder === '1week' ? 'selected' : '') + '>1 semana antes a las:</option>' +
-        '</select>' +
-        '<input type="time" id="reminderTime" class="form-input w-full" value="' + existingReminderTime + '" ' + (existingReminder === 'none' ? 'disabled' : '') + '>' +
+        '<div class="mb-3 p-2 rounded-lg" style="border:1px solid var(--border-primary)">' +
+            '<label class="text-sm font-bold flex items-center gap-2 mb-2"><i class="fas fa-bell text-yellow-500"></i> Recordatorio</label>' +
+            '<div class="flex gap-2">' +
+                '<select id="reminderType" class="form-select flex-1">' +
+                    '<option value="none" ' + (existingReminder === 'none' ? 'selected' : '') + '>No</option>' +
+                    '<option value="sameday" ' + (existingReminder === 'sameday' ? 'selected' : '') + '>El mismo día</option>' +
+                    '<option value="1day" ' + (existingReminder === '1day' ? 'selected' : '') + '>1 día antes</option>' +
+                '</select>' +
+                '<input type="time" id="reminderTime" class="form-input" style="width:100px" value="' + existingReminderTime + '" ' + (existingReminder === 'none' ? 'disabled' : '') + '>' +
+            '</div>' +
         '</div>' +
         
         '<div class="modal-actions-triple">' +
@@ -556,32 +416,93 @@ function showNote(dateStr, date) {
         '<button id="delNote" class="btn-icon btn-danger"><i class="fas fa-trash"></i></button>' +
         '<button id="cancelNote" class="btn btn-secondary">Cancelar</button>' +
         '</div></div>';
+
+    m.innerHTML = html;
     document.body.appendChild(m);
+    
+    // Referencias DOM
+    const selector = document.getElementById('tagSelector');
+    const customArea = document.getElementById('customTagArea');
+    const extraArea = document.getElementById('extraHoursArea');
+    const juicioArea = document.getElementById('juicioArea');
+    const generalFields = document.getElementById('generalFields');
+    
+    selector.onchange = function() {
+        // 1. Resetear visibilidad de áreas específicas
+        customArea.classList.add('hidden');
+        extraArea.classList.add('hidden');
+        juicioArea.classList.add('hidden');
+        
+        // 2. Resetear visibilidad de campos generales (Por defecto visibles)
+        generalFields.classList.remove('hidden');
+
+        if(this.value === 'CUSTOM') {
+            customArea.classList.remove('hidden');
+            document.getElementById('customTagText').focus();
+        } else if (this.value === 'EXTRA') {
+            extraArea.classList.remove('hidden');
+            document.getElementById('extraHoursInput').focus();
+        } else if (this.value === 'JUICIO') {
+            juicioArea.classList.remove('hidden');
+            // Si es JUICIO, OCULTAMOS los campos generales para no duplicar
+            generalFields.classList.add('hidden');
+        }
+    };
     
     document.getElementById('reminderType').onchange = function() {
         document.getElementById('reminderTime').disabled = this.value === 'none';
     };
     
     document.getElementById('saveNote').onclick = function() {
-        const title = document.getElementById('noteTitle').value.trim();
-        const description = document.getElementById('noteDescription').value.trim();
-        const reminderType = document.getElementById('reminderType').value;
-        const reminderTime = document.getElementById('reminderTime').value;
+        // Capturamos los generales (aunque estén ocultos)
+        let title = document.getElementById('noteTitle').value.trim();
+        const desc = document.getElementById('noteDescription').value.trim();
+        const remType = document.getElementById('reminderType').value;
+        const remTime = document.getElementById('reminderTime').value;
+        const selValue = selector.value;
         
-        if(title || description) {
+        let finalTag = null;
+        
+        if (selValue === "JUICIO") {
+            // Si es juicio, ignoramos el título manual y usamos "Juicio" internamente
+            title = "Juicio"; 
+            finalTag = { 
+                text: "JUICIO", 
+                color: "#ef4444",
+                details: {
+                    juzgado: document.getElementById('juzgado').value,
+                    sala: document.getElementById('sala').value,
+                    atestadoPol: document.getElementById('atestadoPol').value,
+                    atestadoJud: document.getElementById('atestadoJud').value,
+                    hora: document.getElementById('horaJuicio').value,
+                    notas: document.getElementById('notasJuicio').value
+                }
+            };
+        }
+        else if (selValue === "CURSO") finalTag = { text: "CURSO", color: "#f97316" };
+        else if (selValue === "EXTRA") {
+            const hoursVal = document.getElementById('extraHoursInput').value;
+            const finalHours = hoursVal ? parseFloat(hoursVal) : 0;
+            finalTag = { text: "HORAS EXTRA", color: "#8b5cf6", hours: finalHours };
+        }
+        else if (selValue === "CUSTOM") {
+            const cText = document.getElementById('customTagText').value.trim();
+            const cColor = document.getElementById('customTagColor').value;
+            if(cText) finalTag = { text: cText, color: cColor };
+        }
+
+        // Guardamos si hay título, descripción O una etiqueta seleccionada
+        if(title || desc || finalTag) {
             state.notes[dateStr] = {
                 title: title,
-                description: description,
+                description: desc,
                 text: title,
-                reminder: reminderType,
-                reminderTime: reminderTime
+                reminder: remType,
+                reminderTime: remTime,
+                tag: finalTag
             };
-            
-            if(reminderType !== 'none') {
-                scheduleNotification(dateStr, date, title, description, reminderType, reminderTime);
-            } else {
-                cancelNotification(dateStr);
-            }
+            if(remType !== 'none') scheduleNotification(dateStr, date, title, desc, remType, remTime);
+            else cancelNotification(dateStr);
         } else {
             delete state.notes[dateStr];
             cancelNotification(dateStr);
@@ -593,26 +514,56 @@ function showNote(dateStr, date) {
     };
     
     document.getElementById('delNote').onclick = function() {
-        if(state.notes[dateStr]) {
-            if(confirm('¿Seguro que quieres borrar esta nota?')) {
-                delete state.notes[dateStr];
-                cancelNotification(dateStr);
-                saveData();
-                renderCalendar();
-                document.body.removeChild(m);
-            }
-        } else {
+        if(state.notes[dateStr] && confirm('¿Borrar nota y etiqueta?')) {
+            delete state.notes[dateStr];
+            cancelNotification(dateStr);
+            saveData();
+            renderCalendar();
             document.body.removeChild(m);
+        } else {
+             document.body.removeChild(m);
         }
     };
     
-    document.getElementById('cancelNote').onclick = function() {
-        document.body.removeChild(m);
-    };
+    document.getElementById('cancelNote').onclick = function() { document.body.removeChild(m); };
+    m.onclick = function(e) { if(e.target === m) document.body.removeChild(m); };
+}
+
+function setupShiftBtns() {
+    const sel = document.getElementById('shiftSelector');
+    sel.innerHTML = '';
+    const panel = document.getElementById('floatingEditPanel');
+
+    // Botones de Turnos
+    Object.entries(SHIFT_TYPES).forEach(function(e) {
+        const btn = document.createElement('button');
+        btn.className = 'shift-button'; 
+        btn.textContent = e[0]; // Solo la letra
+        btn.style.backgroundColor = e[1].color;
+        btn.style.color = '#000';
+        btn.style.minWidth = '40px';
+        btn.dataset.shiftType = e[0];
+        
+        btn.onclick = function() { 
+            state.selectedShiftType = e[0];
+            updateBtns();
+            // RETRAER MENÚ AUTOMÁTICAMENTE
+            panel.classList.remove('active'); 
+            showToast('Seleccionado: ' + e[1].label);
+        };
+        sel.appendChild(btn);
+    });
     
-    m.onclick = function(e) { 
-        if(e.target === m) document.body.removeChild(m); 
-    };
+    // Botón Borrar
+    const eBtn = document.querySelector('[data-shift-type="erase"]');
+    if(eBtn) {
+        eBtn.onclick = function() { 
+            state.selectedShiftType = 'erase';
+            updateBtns();
+            panel.classList.remove('active');
+            showToast('Modo Borrar');
+        };
+    }
 }
 
 function saveData() {
@@ -651,7 +602,6 @@ function setupEvents() {
         renderCalendar();
     };
     
-    // NUEVO: Selector de fecha
     document.getElementById('datePickerBtn').onclick = showDatePicker;
     
     const themeBtn = document.getElementById('themeToggleBtn');
@@ -676,7 +626,6 @@ function setupEvents() {
             fab.classList.remove('edit-active');
             panel.classList.remove('active');
             state.selectedShiftType = null;
-            state.selectedTaskType = null;  // NUEVO
             updateBtns();
         }
         renderCalendar();
@@ -687,7 +636,6 @@ function setupEvents() {
         fab.classList.remove('edit-active');
         panel.classList.remove('active');
         state.selectedShiftType = null;
-        state.selectedTaskType = null;  // NUEVO
         updateBtns();
         renderCalendar();
     };
@@ -697,7 +645,6 @@ function setupEvents() {
     setupSwipeGestures();
 }
 
-// NUEVO: Mostrar selector de fecha
 function showDatePicker() {
     const m = document.createElement('div');
     m.className = 'modal-overlay visible';
@@ -708,14 +655,12 @@ function showDatePicker() {
     let html = '<div class="modal-content" style="max-width:400px">';
     html += '<h3 class="text-lg font-bold mb-4 text-center">Ir a fecha</h3>';
     
-    // Selector de año
     html += '<div class="flex items-center justify-center gap-3 mb-4">';
     html += '<button class="btn-icon btn-secondary" onclick="changeYear(-1)"><i class="fas fa-minus"></i></button>';
     html += '<span id="yearDisplay" class="text-2xl font-bold" style="min-width:100px;text-align:center">' + currentYear + '</span>';
     html += '<button class="btn-icon btn-secondary" onclick="changeYear(1)"><i class="fas fa-plus"></i></button>';
     html += '</div>';
     
-    // Grid de meses
     html += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;margin-bottom:1rem">';
     MONTH_NAMES.forEach(function(monthName, idx) {
         const isSelected = idx === currentMonth && currentYear === parseInt(document.getElementById('yearDisplay')?.textContent || currentYear);
@@ -729,10 +674,7 @@ function showDatePicker() {
     m.id = 'datePickerModal';
     m.innerHTML = html;
     document.body.appendChild(m);
-    
-    m.onclick = function(e) { 
-        if(e.target === m) closeModal('datePickerModal'); 
-    };
+    m.onclick = function(e) { if(e.target === m) closeModal('datePickerModal'); };
 }
 
 function changeYear(delta) {
@@ -755,87 +697,11 @@ function updateThemeIcon() {
     btn.innerHTML = isLight ? '<i class="fas fa-moon"></i>' : '<i class="fas fa-sun"></i>';
 }
 
-function setupShiftBtns() {
-    // Botones de turnos
-    const sel = document.getElementById('shiftSelector');
-    sel.innerHTML = '';
-    Object.entries(SHIFT_TYPES).forEach(function(e) {
-        const btn = document.createElement('button');
-        btn.className = 'shift-button';
-        btn.textContent = e[0] + ' - ' + e[1].label;
-        btn.style.backgroundColor = e[1].color;
-        btn.style.color = '#000';
-        btn.dataset.shiftType = e[0];
-        btn.onclick = function() { 
-            state.selectedShiftType = e[0];
-            state.selectedTaskType = null;
-            updateBtns(); 
-        };
-        sel.appendChild(btn);
-    });
-    
-    const eBtn = document.querySelector('[data-shift-type="erase"]');
-    if(eBtn) eBtn.onclick = function() { 
-        state.selectedShiftType = 'erase';
-        state.selectedTaskType = null;
-        updateBtns(); 
-    };
-    
-    // Botones de tareas
-    const taskSel = document.getElementById('taskSelector');
-    if(taskSel) {
-        taskSel.innerHTML = '';
-        Object.entries(TASK_TYPES).forEach(function(e) {
-            const btn = document.createElement('button');
-            btn.className = 'task-button';
-            btn.textContent = e[1].label;
-            btn.style.backgroundColor = e[1].color;
-            btn.style.color = '#fff';
-            btn.dataset.taskType = e[0];
-            btn.onclick = function() {
-                state.selectedTaskType = e[0];
-                state.selectedShiftType = null;
-                updateBtns();
-            };
-            taskSel.appendChild(btn);
-        });
-        
-        const eTaskBtn = document.querySelector('[data-task-type="eraseTask"]');
-        if(eTaskBtn) eTaskBtn.onclick = function() {
-            state.selectedTaskType = 'eraseTask';
-            state.selectedShiftType = null;
-            updateBtns();
-        };
-    }
-}
-
-// NUEVO: Función para cambiar entre pestañas
-function switchTab(tabName) {
-    // Ocultar todos los contenidos
-    document.querySelectorAll('.tab-content').forEach(function(content) {
-        content.classList.remove('active');
-    });
-    
-    // Desactivar todos los botones
-    document.querySelectorAll('.tab-btn').forEach(function(btn) {
-        btn.classList.remove('active');
-    });
-    
-    // Activar pestaña seleccionada
-    document.getElementById(tabName + 'Tab').classList.add('active');
-    event.target.closest('.tab-btn').classList.add('active');
-}
-
 function updateBtns() {
-    document.querySelectorAll('.shift-button, .task-button, .turno-btn').forEach(function(b) {
+    document.querySelectorAll('.shift-button, .turno-btn').forEach(function(b) {
         const isShiftSelected = b.dataset.shiftType === state.selectedShiftType;
-        const isTaskSelected = b.dataset.taskType === state.selectedTaskType;
-        
-        if(isShiftSelected || isTaskSelected) {
-            b.classList.add('selected');
-        } else {
-            b.classList.remove('selected');
-        }
+        if(isShiftSelected) b.classList.add('selected');
+        else b.classList.remove('selected');
     });
 }
 
@@ -887,7 +753,7 @@ function setupSidebar() {
         const name = document.getElementById('newCalendarName').value.trim();
         if(!name) { alert('Escribe un nombre'); return; }
         const id = 'cal_' + Date.now();
-        state.calendars[id] = {name: name, shifts: {}, notes: {}, tasks: {}, extraHours: {}};
+        state.calendars[id] = {name: name, shifts: {}, notes: {}, extraHours: {}};
         state.activeCalendar = id;
         loadActiveCalendar();
         updateCalendarSelector();
@@ -914,10 +780,9 @@ function setupSidebar() {
     };
     
     document.getElementById('clearAllShiftsBtn').onclick = function() {
-        if(confirm('¿Borrar TODOS los turnos, tareas y notas del calendario actual?')) {
+        if(confirm('¿Borrar TODOS los turnos y notas del calendario actual?')) {
             state.shiftData = {};
             state.notes = {};
-            state.calendars[state.activeCalendar].tasks = {};
             saveData();
             renderCalendar();
             showToast('Calendario limpiado');
@@ -930,109 +795,6 @@ function setupSidebar() {
     };
 }
 
-// NUEVO: Gestor de tareas personalizadas
-function showCustomTasksManager() {
-    const m = document.createElement('div');
-    m.id = 'customTasksModal';
-    m.className = 'modal-overlay visible';
-    
-    let html = '<div class="modal-content" style="max-width:600px;max-height:80vh;overflow-y:auto;">';
-    html += '<h3 class="text-xl font-bold mb-4"><i class="fas fa-calendar-check"></i> Mis Tareas Personalizadas</h3>';
-    
-    html += '<div class="mb-4 p-3 rounded-lg" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
-    html += '<h4 class="font-bold mb-2 text-sm">Tareas por Defecto</h4>';
-    html += '<div class="flex gap-2 flex-wrap">';
-    Object.entries(DEFAULT_TASKS).forEach(function(e) {
-        html += '<span class="px-3 py-1 rounded text-sm font-bold" style="background:' + e[1].color + ';color:#fff">';
-        html += e[1].label + '</span>';
-    });
-    html += '</div></div>';
-    
-    if(Object.keys(state.customTasks).length > 0) {
-        html += '<div class="mb-4"><h4 class="font-bold mb-2 text-sm">Tus Tareas Personalizadas</h4>';
-        Object.entries(state.customTasks).forEach(function(e) {
-            html += '<div class="mb-2 p-2 rounded-lg flex justify-between items-center" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
-            html += '<span class="px-3 py-1 rounded font-bold" style="background:' + e[1].color + ';color:#fff">' + e[1].label + '</span>';
-            html += '<button class="btn-icon btn-danger" onclick="deleteCustomTask(\'' + e[0] + '\')"><i class="fas fa-trash"></i></button>';
-            html += '</div>';
-        });
-        html += '</div>';
-    }
-    
-    html += '<button class="btn btn-primary w-full mt-3" onclick="createCustomTask()"><i class="fas fa-plus"></i> Crear Nueva Tarea</button>';
-    html += '<button class="btn btn-secondary w-full mt-2" onclick="closeModal(\'customTasksModal\')">Cerrar</button>';
-    html += '</div>';
-    
-    m.innerHTML = html;
-    document.body.appendChild(m);
-    m.onclick = function(e) { if(e.target === m) closeModal('customTasksModal'); };
-}
-
-function createCustomTask() {
-    closeModal('customTasksModal');
-    const m = document.createElement('div');
-    m.id = 'createTaskModal';
-    m.className = 'modal-overlay visible';
-    
-    let html = '<div class="modal-content" style="max-width:500px">';
-    html += '<h3 class="text-lg font-bold mb-3"><i class="fas fa-plus"></i> Crear Tarea Personalizada</h3>';
-    
-    html += '<label class="block mb-2 text-sm font-bold">Nombre de la tarea:</label>';
-    html += '<input type="text" id="taskLabel" class="form-input w-full mb-3" placeholder="Ej: Entrenamiento, Visita médica">';
-    
-    html += '<label class="block mb-2 text-sm font-bold">Color:</label>';
-    html += '<div class="flex gap-2 mb-3 flex-wrap">';
-    const colors = ['#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#f43f5e','#84cc16'];
-    colors.forEach(function(c) {
-        html += '<button class="color-picker-btn" style="background:' + c + '" data-color="' + c + '" onclick="selectTaskColor(\'' + c + '\')"></button>';
-    });
-    html += '</div>';
-    html += '<input type="color" id="taskColor" class="form-input w-full mb-3" value="#3b82f6">';
-    
-    html += '<div class="modal-actions">';
-    html += '<button class="btn btn-primary" onclick="saveNewCustomTask()"><i class="fas fa-save"></i> Guardar</button>';
-    html += '<button class="btn btn-secondary" onclick="closeModal(\'createTaskModal\');showCustomTasksManager()">Cancelar</button>';
-    html += '</div></div>';
-    
-    m.innerHTML = html;
-    document.body.appendChild(m);
-}
-
-function selectTaskColor(color) {
-    document.getElementById('taskColor').value = color;
-    document.querySelectorAll('.color-picker-btn').forEach(function(btn) {
-        if(btn.dataset.color === color) btn.classList.add('selected');
-        else btn.classList.remove('selected');
-    });
-}
-
-function saveNewCustomTask() {
-    const label = document.getElementById('taskLabel').value.trim();
-    const color = document.getElementById('taskColor').value;
-    
-    if(!label) { alert('Pon un nombre a la tarea'); return; }
-    
-    const code = 'TASK_' + Date.now();
-    state.customTasks[code] = {label: label, color: color};
-    saveCustomTasks();
-    setupShiftBtns();
-    closeModal('createTaskModal');
-    showCustomTasksManager();
-    showToast('Tarea creada: ' + label);
-}
-
-function deleteCustomTask(code) {
-    if(confirm('¿Borrar esta tarea?')) {
-        delete state.customTasks[code];
-        saveCustomTasks();
-        setupShiftBtns();
-        renderCalendar();
-        closeModal('customTasksModal');
-        showCustomTasksManager();
-        showToast('Tarea eliminada');
-    }
-}
-
 function showCustomShiftsManager() {
     const m = document.createElement('div');
     m.id = 'customShiftsModal';
@@ -1042,7 +804,7 @@ function showCustomShiftsManager() {
     html += '<h3 class="text-xl font-bold mb-4"><i class="fas fa-palette"></i> Mis Turnos Personalizados</h3>';
     
     html += '<div class="mb-4 p-3 rounded-lg" style="background:var(--bg-tertiary);border:1px solid var(--border-primary)">';
-    html += '<h4 class="font-bold mb-2 text-sm">Turnos por Defecto (No editables)</h4>';
+    html += '<h4 class="font-bold mb-2 text-sm">Turnos por Defecto</h4>';
     html += '<div class="flex gap-2 flex-wrap">';
     Object.entries(DEFAULT_SHIFT_TYPES).forEach(function(e) {
         html += '<span class="px-3 py-1 rounded text-sm font-bold" style="background:' + e[1].color + ';color:#000">';
@@ -1644,29 +1406,58 @@ function showHelp() {
     m.id = 'helpModal';
     m.className = 'modal-overlay visible';
     
-    let html = '<div class="modal-content" style="max-width:600px;max-height:80vh;overflow-y:auto">';
-    html += '<h3 class="text-xl font-bold mb-4"><i class="fas fa-question-circle"></i> Como usar</h3>';
+    let html = '<div class="modal-content" style="max-width:600px;max-height:85vh;overflow-y:auto">';
+    html += '<h3 class="text-xl font-bold mb-4 text-center">📘 Guía de Uso</h3>';
     
-    html += '<div class="mb-4"><h4 class="font-bold mb-2"><i class="fas fa-edit" style="color:var(--accent-primary)"></i> Editar Turnos</h4>';
-    html += '<p class="text-sm mb-2">1. Pulsa el botón verde (abajo derecha)</p>';
-    html += '<p class="text-sm mb-2">2. Selecciona un turno</p>';
-    html += '<p class="text-sm">3. Haz click en los días</p></div>';
+    // BLOQUE 1: PINTAR TURNOS
+    html += '<div class="mb-4 p-3 rounded-lg" style="background:var(--bg-tertiary); border-left: 4px solid var(--accent-primary)">';
+    html += '<h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-paint-roller"></i> 1. Asignar Turnos</h4>';
+    html += '<ul class="text-sm ml-4 space-y-2" style="list-style:none">';
+    html += '<li>🔵 Pulsa el botón flotante <i class="fas fa-edit mx-1" style="background:var(--accent-primary);color:black;padding:2px 5px;border-radius:50%"></i> abajo derecha.</li>';
+    html += '<li>🔵 Selecciona un turno (ej: <b>M</b>, <b>T</b>, <b>N</b>).</li>';
+    html += '<li>🔵 Toca los días en el calendario para pintarlos.</li>';
+    html += '<li>🔵 <i>El menú se cierra solo para dejarte ver todo el mes.</i></li>';
+    html += '</ul>';
+    html += '</div>';
     
-    html += '<div class="mb-4"><h4 class="font-bold mb-2"><i class="fas fa-calendar-check" style="color:#f59e0b"></i> Tareas/Eventos</h4>';
-    html += '<p class="text-sm mb-2">Añade eventos que aparecen como píldoras sobre los días</p>';
-    html += '<p class="text-sm">Activa el modo edición y selecciona una tarea</p></div>';
+    // BLOQUE 2: NOTAS Y ETIQUETAS
+    html += '<div class="mb-4 p-3 rounded-lg" style="background:var(--bg-tertiary); border-left: 4px solid #f59e0b">';
+    html += '<h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-tags"></i> 2. Notas y Etiquetas</h4>';
+    html += '<p class="text-sm mb-2">Haz <b>DOBLE CLICK</b> en cualquier día para abrir el menú detallado.</p>';
+    html += '<div class="flex gap-2 mb-2">';
+    html += '<span class="text-xs font-bold px-2 py-1 rounded bg-red-500 text-white">JUICIO</span>';
+    html += '<span class="text-xs font-bold px-2 py-1 rounded bg-orange-500 text-white">CURSO</span>';
+    html += '<span class="text-xs font-bold px-2 py-1 rounded bg-green-500 text-white">PERSONALIZADA</span>';
+    html += '</div>';
+    html += '<p class="text-sm text-gray-400">Elige una etiqueta rápida del desplegable para verla visualmente en el calendario.</p>';
+    html += '</div>';
     
-    html += '<div class="mb-4"><h4 class="font-bold mb-2"><i class="fas fa-sticky-note" style="color:var(--accent-primary)"></i> Notas</h4>';
-    html += '<p class="text-sm">Doble-click en cualquier día para añadir una nota</p></div>';
+    // BLOQUE 3: HORAS EXTRA (DESTACADO)
+    html += '<div class="mb-4 p-3 rounded-lg" style="background:rgba(139, 92, 246, 0.15); border: 1px solid #8b5cf6">';
+    html += '<h4 class="font-bold mb-2 flex items-center gap-2" style="color:#a78bfa"><i class="fas fa-stopwatch"></i> 3. Control de Horas Extra</h4>';
+    html += '<p class="text-sm mb-2">¿Has hecho horas de más? Regístralas así:</p>';
+    html += '<ol class="text-sm ml-5 list-decimal space-y-1">';
+    html += '<li>Haz doble click en el día.</li>';
+    html += '<li>En "Etiqueta rápida", selecciona <b>HORAS EXTRA</b>.</li>';
+    html += '<li>Escribe la cantidad (ej: 2.5).</li>';
+    html += '<li>Dale a Guardar.</li>';
+    html += '</ol>';
+    html += '<p class="text-xs mt-2 text-center font-bold" style="color:#a78bfa">¡Se sumarán automáticamente en el panel de Estadísticas!</p>';
+    html += '</div>';
     
-    html += '<button class="btn btn-primary w-full" onclick="closeModal(\'helpModal\')">Entendido</button>';
+    // BLOQUE 4: MENÚ LATERAL
+    html += '<div class="mb-4 p-3 rounded-lg" style="background:var(--bg-tertiary); border-left: 4px solid var(--text-secondary)">';
+    html += '<h4 class="font-bold mb-2 flex items-center gap-2"><i class="fas fa-bars"></i> 4. Más Opciones</h4>';
+    html += '<p class="text-sm">Abre el menú lateral (arriba izquierda) para ver <b>Estadísticas</b>, crear <b>Ciclos</b> automáticos o hacer copias de seguridad.</p>';
+    html += '</div>';
+    
+    html += '<button class="btn btn-primary w-full py-3 text-lg" onclick="closeModal(\'helpModal\')">¡Entendido, gracias!</button>';
     html += '</div>';
     
     m.innerHTML = html;
     document.body.appendChild(m);
     m.onclick = function(e) { if(e.target === m) closeModal('helpModal'); };
 }
-
 function showStatistics() {
     const year = state.currentDate.getFullYear();
     const month = state.currentDate.getMonth();
@@ -1676,7 +1467,7 @@ function showStatistics() {
         stats[key] = 0;
     });
     
-    // Contar turnos del mes
+    // 1. Contar turnos normales del mes
     Object.entries(state.shiftData).forEach(function(entry) {
         const d = new Date(entry[0]);
         if(d.getFullYear() === year && d.getMonth() === month) {
@@ -1686,7 +1477,7 @@ function showStatistics() {
         }
     });
     
-    // Calcular horas de turnos
+    // 2. Calcular horas de turnos normales
     let totalHours = 0;
     Object.entries(stats).forEach(function(entry) {
         if(SHIFT_TYPES[entry[0]]) {
@@ -1694,20 +1485,17 @@ function showStatistics() {
         }
     });
     
-    // NUEVO: Sumar horas extras del mes
+    // 3. CALCULAR HORAS EXTRA (NUEVO - Desde las notas)
     let extraHoursTotal = 0;
-    let extraHoursCount = 0;
-    Object.entries(state.calendars[state.activeCalendar].tasks || {}).forEach(function(entry) {
+    
+    Object.entries(state.notes).forEach(function(entry) {
         const d = new Date(entry[0]);
+        // Verificar si la nota es de este mes
         if(d.getFullYear() === year && d.getMonth() === month) {
-            const tasksArray = entry[1];
-            if(Array.isArray(tasksArray)) {
-                tasksArray.forEach(function(task) {
-                    if(task.type === 'EXTRA' && task.hours) {
-                        extraHoursTotal += task.hours;
-                        extraHoursCount++;
-                    }
-                });
+            const note = entry[1];
+            // Verificar si tiene la etiqueta correcta y horas guardadas
+            if(note.tag && note.tag.text === "HORAS EXTRA" && note.tag.hours) {
+                extraHoursTotal += parseFloat(note.tag.hours);
             }
         }
     });
@@ -1720,30 +1508,30 @@ function showStatistics() {
     html += '<h3 class="text-xl font-bold mb-4"><i class="fas fa-chart-pie"></i> Estadísticas</h3>';
     html += '<p class="text-sm mb-4" style="color:var(--text-secondary)">' + MONTH_NAMES[month] + ' ' + year + '</p>';
     
-    // Total de horas
+    // TARJETA DE TURNOS ORDINARIOS
     html += '<div class="mb-4 p-3 rounded-lg" style="background:var(--bg-tertiary)">';
     html += '<div class="text-2xl font-bold text-center mb-2">' + totalHours + ' horas</div>';
-    html += '<div class="text-xs text-center" style="color:var(--text-secondary)">Total de turnos</div>';
+    html += '<div class="text-xs text-center" style="color:var(--text-secondary)">Turnos ordinarios</div>';
     html += '</div>';
     
-    // NUEVO: Mostrar horas extras si existen
+    // TARJETA DE HORAS EXTRA (SOLO SI HAY)
     if(extraHoursTotal > 0) {
-        html += '<div class="mb-4 p-3 rounded-lg" style="background:#8b5cf6;color:white">';
-        html += '<div class="flex items-center justify-between">';
+        html += '<div class="mb-4 p-4 rounded-lg flex items-center justify-between" style="background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%); color: white; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.4);">';
         html += '<div>';
-        html += '<div class="text-lg font-bold">+ ' + extraHoursTotal + ' horas extra</div>';
-        html += '<div class="text-xs opacity-80">En ' + extraHoursCount + ' día(s)</div>';
+        html += '<div class="text-3xl font-bold">+ ' + extraHoursTotal + ' h</div>';
+        html += '<div class="text-sm opacity-90">Horas Extra Realizadas</div>';
         html += '</div>';
-        html += '<i class="fas fa-clock text-3xl opacity-50"></i>';
-        html += '</div></div>';
+        html += '<i class="fas fa-stopwatch text-4xl opacity-50"></i>';
+        html += '</div>';
         
-        html += '<div class="mb-4 p-3 rounded-lg" style="background:var(--accent-primary);color:var(--accent-text)">';
-        html += '<div class="text-3xl font-bold text-center">' + (totalHours + extraHoursTotal) + ' h</div>';
-        html += '<div class="text-sm text-center font-bold">TOTAL GENERAL</div>';
+        // Total Combinado
+        html += '<div class="mb-4 p-2 text-center rounded border border-gray-700" style="background:rgba(0,255,0,0.05)">';
+        html += '<span class="text-sm text-gray-400">TOTAL MENSUAL: </span>';
+        html += '<span class="font-bold text-xl text-green-400 ml-2">' + (totalHours + extraHoursTotal) + ' h</span>';
         html += '</div>';
     }
     
-    // Detalle por turno
+    // LISTA DETALLADA
     html += '<div class="mb-4">';
     Object.entries(stats).forEach(function(entry) {
         if(SHIFT_TYPES[entry[0]] && entry[1] > 0) {
@@ -1768,6 +1556,7 @@ function showStatistics() {
     m.innerHTML = html;
     document.body.appendChild(m);
     
+    // GRÁFICO
     const ctx = document.getElementById('statsChart').getContext('2d');
     const labels = [];
     const data = [];
@@ -1780,6 +1569,14 @@ function showStatistics() {
             colors.push(SHIFT_TYPES[entry[0]].color);
         }
     });
+    
+    // Añadir quesito morado al gráfico si hay extras
+    if(extraHoursTotal > 0) {
+        labels.push('Extras (aprox)');
+        // Representación visual aproximada (1 unidad por cada 8h extra)
+        data.push(Math.max(1, Math.round(extraHoursTotal / 8))); 
+        colors.push('#8b5cf6'); 
+    }
     
     new Chart(ctx, {
         type: 'doughnut',
@@ -1797,10 +1594,7 @@ function showStatistics() {
             plugins: {
                 legend: {
                     position: 'bottom',
-                    labels: {
-                        color: '#ffffff',
-                        font: { size: 12 }
-                    }
+                    labels: { color: '#ffffff', font: { size: 12 } }
                 }
             }
         }
